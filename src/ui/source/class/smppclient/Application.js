@@ -31,10 +31,18 @@ qx.Class.define("smppclient.Application", {
       this.__panels.messageOps = attach("query / cancel / replace", new smppclient.MessageOpsForm());
       this.__panels.multi = attach("submit_multi", new smppclient.MultiForm());
       this.__panels.burst = attach("burst", new smppclient.BurstPanel(this.__submitForm));
+      this.__panels.hex = attach("hex", new smppclient.HexComposer());
 
       this.__trace = new smppclient.TracePanel();
       this.__trace.addListener("notice", e => shell.showNotice(e.getData()));
       shell.getTraceSlot().add(this.__trace);
+
+      // "Edit as hex" on a trace row opens the composer with those bytes.
+      this.__trace.addListener("editAsHex", e => {
+        this.__panels.hex.setHex(e.getData());
+        shell.selectPage(this.__panels.hex);
+        shell.showNotice("Loaded the selected PDU into the hex composer.");
+      });
 
       // The flow diagram labels the far end with whatever we are bound to.
       const connection = shell.getConnectionPanel();

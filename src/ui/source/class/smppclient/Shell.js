@@ -152,6 +152,14 @@ qx.Class.define("smppclient.Shell", {
       return page;
     },
 
+    /** Bring the page holding `widget` to the front. */
+    selectPage(widget) {
+      const page = this.__tabs.getChildren().filter(p => p.getChildren().indexOf(widget) >= 0);
+      if (page.length > 0) {
+        this.__tabs.setSelection([page[0]]);
+      }
+    },
+
     /** One line of feedback along the bottom. */
     showNotice(text) {
       this.__status.setValue(text === undefined || text === null ? "" : String(text));
