@@ -15,10 +15,22 @@ qx.Class.define("smppclient.Application", {
         qx.log.appender.Console;
       }
 
-      this.getRoot().add(new qx.ui.basic.Label("SMPP Client"), {
-        left: 20,
-        top: 20
-      });
-    }
+      const shell = new smppclient.Shell();
+      this.getRoot().add(shell, { edge: 0 });
+      this.__shell = shell;
+
+      if (!smppclient.Api.getInstance().available()) {
+        shell.showNotice(
+          "Running outside the app: the main process is not reachable, so nothing can be sent."
+        );
+      }
+    },
+
+    /** The shell, for later panels to attach to. */
+    getShell() {
+      return this.__shell;
+    },
+
+    __shell: null
   }
 });
