@@ -19,6 +19,10 @@ qx.Class.define("smppclient.Application", {
       this.getRoot().add(shell, { edge: 0 });
       this.__shell = shell;
 
+      this.__submitForm = new smppclient.SubmitForm();
+      this.__submitForm.addListener("notice", e => shell.showNotice(e.getData()));
+      shell.addPage("submit_sm", this.__submitForm);
+
       if (!smppclient.Api.getInstance().available()) {
         shell.showNotice(
           "Running outside the app: the main process is not reachable, so nothing can be sent."
@@ -31,6 +35,12 @@ qx.Class.define("smppclient.Application", {
       return this.__shell;
     },
 
-    __shell: null
+    /** The submit_sm form. */
+    getSubmitForm() {
+      return this.__submitForm;
+    },
+
+    __shell: null,
+    __submitForm: null
   }
 });

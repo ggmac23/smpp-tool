@@ -9,7 +9,7 @@
     "build:main": "tsc -p tsconfig.main.json && npm run build:preload",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --target=node20 --format=cjs --external:electron --outfile=dist/preload/index.js",
     "build:ui": "cd src/ui && qx compile --target=build && cd ../.. && npm run build:forms",
-    "build:forms": "esbuild src/shared/ui/index.ts --bundle --format=iife --global-name=SmppForms --target=es2020 --outfile=compiled/build/forms.js",
+    "build:forms": "esbuild src/shared/ui/index.ts --bundle --format=iife --global-name=SmppForms --target=es2020 --platform=browser --inject:src/shared/ui/buffer-shim.ts --outfile=compiled/build/forms.js",
     "build": "npm run build:main && npm run build:ui",
     "start": "electron .",
     "dist": "electron-builder"
@@ -17,6 +17,7 @@
   "devDependencies": {
     "@qooxdoo/framework": "7.9.3",
     "@types/node": "^24.0.0",
+    "buffer": "^6.0.3",
     "electron": "^34.0.0",
     "electron-builder": "^25.0.0",
     "esbuild": "^0.28.2",

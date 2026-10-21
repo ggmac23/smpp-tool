@@ -8,3 +8,5 @@
  * Each UI task adds its module's export line as it lands.
  */
 export * from "./connection";
+export * from "./fields";
+export * from "./submit";
