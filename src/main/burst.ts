@@ -87,6 +87,9 @@ export class BurstRunner extends EventEmitter {
   private lostConnection = false;
   private startedAt = 0;
   private finishedAt = 0;
+  /** When the last submit settled. The rate is measured to here, not to the
+   * end of the wait for delivery receipts, which would dilute it. */
+  private sendingEndedAt = 0;
   private _submitted = 0;
   private _accepted = 0;
   private _pdus = 0;
@@ -115,7 +118,8 @@ export class BurstRunner extends EventEmitter {
 
   get stats(): BurstStats {
     const sorted = [...this.latencies].sort((a, b) => a - b);
-    const elapsed = ((this.finishedAt || Date.now()) - this.startedAt) / 1000;
+    const sendingEnded = this.sendingEndedAt || this.finishedAt || Date.now();
+    const elapsed = (sendingEnded - this.startedAt) / 1000;
     return {
       messages: this._messages,
       pdus: this._pdus,
@@ -155,6 +159,7 @@ export class BurstRunner extends EventEmitter {
     this._rate = cfg.ratePerSec;
     this.startedAt = Date.now();
     this.finishedAt = 0;
+    this.sendingEndedAt = 0;
     this.correlator = new DlrCorrelator(this.correlation);
 
     const onReceipt = (e: { pdu: Pdu }) => this.onInbound(e.pdu);
@@ -174,6 +179,7 @@ export class BurstRunner extends EventEmitter {
 
     try {
       await this.pump(cfg, numbers);
+      this.sendingEndedAt = Date.now();
       await this.awaitDlrs(cfg.awaitDlrMs);
     } finally {
       clearInterval(progressTimer);

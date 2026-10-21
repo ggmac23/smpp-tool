@@ -185,6 +185,25 @@ describe("BurstRunner", () => {
     expect(runner.stats.latencyP99).toBeGreaterThanOrEqual(runner.stats.latencyP95);
   });
 
+  it("measures the achieved rate over the sending, not the wait for receipts", async () => {
+    smsc = new FakeSmsc();
+    const s = await bound();
+    const runner = new BurstRunner(s, DEFAULT_CORRELATION);
+
+    // No receipts will come, so awaitDlrMs is spent entirely waiting.
+    await runner.start(
+      config({
+        recipients: { kind: "repeat", number: "3933", count: 10 },
+        ratePerSec: 100,
+        awaitDlrMs: 1000,
+      })
+    );
+
+    // 10 messages at 100/sec is about 0.1s of sending. If the 1s of waiting
+    // were counted, the figure would collapse to about 9/sec.
+    expect(runner.stats.achievedRatePerSec).toBeGreaterThan(30);
+  });
+
   it("rejects a rate above MAX_RATE before sending anything", async () => {
     smsc = new FakeSmsc();
     const s = await bound();
