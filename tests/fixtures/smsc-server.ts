@@ -55,6 +55,8 @@ interface Conn {
 export class FakeSmsc {
   readonly received: Pdu[] = [];
   lastPeerCertificateSubject = "";
+  /** The SNI name the last TLS client asked for, or "" if it sent none. */
+  lastServername = "";
 
   private server?: net.Server | tls.Server;
   private readonly conns = new Set<Conn>();
@@ -129,6 +131,7 @@ export class FakeSmsc {
     if (socket instanceof tls.TLSSocket) {
       const cert = socket.getPeerCertificate();
       this.lastPeerCertificateSubject = cert && cert.subject ? JSON.stringify(cert.subject) : "";
+      this.lastServername = (socket as tls.TLSSocket & { servername?: string }).servername ?? "";
     }
 
     const conn: Conn = { socket, framer: new PduFramer() };
