@@ -16,10 +16,13 @@ qx.Class.define("smppclient.Widgets", {
 
     /** A grid suitable for label/field rows. */
     formGrid() {
-      const layout = new qx.ui.layout.Grid(6, 4);
+      const layout = new qx.ui.layout.Grid(8, 5);
       layout.setColumnFlex(1, 1);
       layout.setColumnAlign(0, "right", "middle");
-      return new qx.ui.container.Composite(layout);
+      const grid = new qx.ui.container.Composite(layout);
+      // Fields stay readable instead of stretching across a wide window.
+      grid.setMaxWidth(760);
+      return grid;
     },
 
     /** Put `field` in `grid` at `row`, labelled. Returns the field. */
@@ -93,6 +96,18 @@ qx.Class.define("smppclient.Widgets", {
     buttons(buttons) {
       const box = new qx.ui.container.Composite(new qx.ui.layout.HBox(6));
       buttons.forEach(b => box.add(b));
+      return box;
+    },
+
+    /**
+     * A titled group around `content`. Pass `flex` when the content should
+     * take the spare height.
+     */
+    group(title, content, flex) {
+      const box = new qx.ui.groupbox.GroupBox(title);
+      box.setLayout(new qx.ui.layout.VBox(4));
+      box.setContentPadding(8, 8, 8, 8);
+      box.add(content, flex ? { flex: flex } : undefined);
       return box;
     },
 

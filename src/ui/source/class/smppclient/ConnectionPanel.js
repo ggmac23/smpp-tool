@@ -19,22 +19,16 @@ qx.Class.define("smppclient.ConnectionPanel", {
     const W = smppclient.Widgets;
     this.__api = smppclient.Api.getInstance();
 
-    this.__state = new qx.ui.basic.Label("Unbound");
-    this.__state.setFont("bold");
-    this.add(this.__state);
-
-    this.add(this.__buildProfiles());
-    this.add(W.heading("Server"));
-    this.add(this.__buildServer());
+    this.add(this.__buildStatusStrip());
+    this.add(W.group("Profile", this.__buildProfiles()));
+    this.add(W.group("Server", this.__buildServer()));
     this.add(this.__buildTlsGroup());
-    this.add(W.heading("Bind"));
-    this.add(this.__buildBind());
+    this.add(W.group("Bind", this.__buildBind()));
     this.add(this.__buildActions());
-    this.add(W.heading("Counters"));
 
     this.__counters = W.mono("");
-    this.__counters.setHeight(150);
-    this.add(this.__counters, { flex: 1 });
+    this.__counters.setMinHeight(120);
+    this.add(W.group("Counters", this.__counters, 1), { flex: 1 });
 
     this.__api.on("state", e => this.__onState(e));
     this.__api.on("counters", c => this.__onCounters(c));
@@ -51,6 +45,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
   members: {
     __api: null,
     __state: null,
+    __dot: null,
     __counters: null,
     __fields: null,
     __profiles: null,
@@ -58,6 +53,22 @@ qx.Class.define("smppclient.ConnectionPanel", {
 
     /* ---------------------------------------------------------------- */
     /* construction                                                      */
+
+    /** Bind state as a coloured dot plus its label. */
+    __buildStatusStrip() {
+      const box = new qx.ui.container.Composite(new qx.ui.layout.HBox(8));
+      box.setPadding(2, 0, 6, 0);
+
+      this.__dot = new qx.ui.basic.Label("\u25cf");
+      this.__dot.setTextColor("#999999");
+      box.add(this.__dot);
+
+      this.__state = new qx.ui.basic.Label("Unbound");
+      this.__state.setFont("bold");
+      box.add(this.__state, { flex: 1 });
+
+      return box;
+    },
 
     __buildProfiles() {
       const W = smppclient.Widgets;
@@ -432,6 +443,14 @@ qx.Class.define("smppclient.ConnectionPanel", {
 
     __onState(payload) {
       this.__state.setValue(SmppForms.stateLabel(payload.state, payload.mode));
+      const colours = {
+        unbound: "#999999",
+        binding: "#c08000",
+        bound: "#2e8b2e",
+        unbinding: "#c08000",
+        closed: "#b03030"
+      };
+      this.__dot.setTextColor(colours[payload.state] || "#999999");
     },
 
     __onCounters(counters) {

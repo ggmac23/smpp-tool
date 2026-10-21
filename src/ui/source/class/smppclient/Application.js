@@ -31,6 +31,10 @@ qx.Class.define("smppclient.Application", {
       this.__panels.messageOps = attach("query / cancel / replace", new smppclient.MessageOpsForm());
       this.__panels.multi = attach("submit_multi", new smppclient.MultiForm());
 
+      this.__trace = new smppclient.TracePanel();
+      this.__trace.addListener("notice", e => shell.showNotice(e.getData()));
+      shell.getTraceSlot().add(this.__trace);
+
       if (!smppclient.Api.getInstance().available()) {
         shell.showNotice(
           "Running outside the app: the main process is not reachable, so nothing can be sent."
@@ -53,8 +57,14 @@ qx.Class.define("smppclient.Application", {
       return this.__panels;
     },
 
+    /** The PDU trace panel. */
+    getTracePanel() {
+      return this.__trace;
+    },
+
     __shell: null,
     __submitForm: null,
-    __panels: null
+    __panels: null,
+    __trace: null
   }
 });

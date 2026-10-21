@@ -10,7 +10,7 @@
 
 qx.Theme.define("smppclient.theme.Font",
 {
-  extend : qx.theme.indigo.Font,
+  extend : qx.theme.classic.Font,
 
   fonts :
   {

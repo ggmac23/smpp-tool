@@ -10,7 +10,7 @@
 
 qx.Theme.define("smppclient.theme.Color",
 {
-  extend : qx.theme.indigo.Color,
+  extend : qx.theme.classic.Color,
 
   colors :
   {
