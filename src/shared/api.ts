@@ -69,6 +69,11 @@ export interface SendPduRequest {
   fields?: Record<string, string | number>;
   octetFields?: Record<string, string>;
   tlvs?: { tag: number; hex: string }[];
+  /**
+   * submit_multi's repeating dest_address list. `flag` 1 is an address,
+   * `flag` 2 a distribution-list name. The count field is derived in main.
+   */
+  destList?: { flag: number; ton?: number; npi?: number; addr?: string; dlName?: string }[];
 }
 
 export interface MeasureRequest {

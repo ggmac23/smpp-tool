@@ -6,7 +6,7 @@ import { BurstRunner, BurstRow, BurstStats, BurstDoneReason } from "./burst";
 import { ProfileStore, Profile } from "./profiles";
 import { CorrelationConfig, DEFAULT_CORRELATION } from "./dlr";
 import { IpcHandle } from "./ipc";
-import { decodePdu, Pdu, PduDecodeError } from "../smpp/decode";
+import { decodePdu, Pdu, PduDecodeError, FieldValue } from "../smpp/decode";
 import { PduInput, encodeRaw } from "../smpp/encode";
 import { summarise, describe, DescribedField } from "../smpp/summary";
 import { measure } from "../smpp/text";
@@ -66,10 +66,11 @@ function hexToBuffer(hex: string): Buffer {
 
 /** Renderer-safe request to a PDU model: hex strings become Buffers here. */
 export function toPduInput(req: SendPduRequest): Omit<PduInput, "sequenceNumber"> {
-  const fields: Record<string, string | number | Buffer> = { ...(req.fields ?? {}) };
+  const fields: Record<string, FieldValue> = { ...(req.fields ?? {}) };
   for (const [name, hex] of Object.entries(req.octetFields ?? {})) {
     fields[name] = hexToBuffer(hex);
   }
+  if (req.destList) fields.dest_address = req.destList;
   return {
     commandId: req.commandId,
     commandStatus: req.commandStatus,

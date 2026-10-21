@@ -19,9 +19,17 @@ qx.Class.define("smppclient.Application", {
       this.getRoot().add(shell, { edge: 0 });
       this.__shell = shell;
 
-      this.__submitForm = new smppclient.SubmitForm();
-      this.__submitForm.addListener("notice", e => shell.showNotice(e.getData()));
-      shell.addPage("submit_sm", this.__submitForm);
+      this.__panels = {};
+      const attach = (label, widget) => {
+        widget.addListener("notice", e => shell.showNotice(e.getData()));
+        shell.addPage(label, widget);
+        return widget;
+      };
+
+      this.__submitForm = attach("submit_sm", new smppclient.SubmitForm());
+      this.__panels.dataSm = attach("data_sm", new smppclient.DataSmForm());
+      this.__panels.messageOps = attach("query / cancel / replace", new smppclient.MessageOpsForm());
+      this.__panels.multi = attach("submit_multi", new smppclient.MultiForm());
 
       if (!smppclient.Api.getInstance().available()) {
         shell.showNotice(
@@ -40,7 +48,13 @@ qx.Class.define("smppclient.Application", {
       return this.__submitForm;
     },
 
+    /** The other PDU panels, by name. */
+    getPanels() {
+      return this.__panels;
+    },
+
     __shell: null,
-    __submitForm: null
+    __submitForm: null,
+    __panels: null
   }
 });

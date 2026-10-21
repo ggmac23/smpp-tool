@@ -143,6 +143,31 @@ describe("Controller", () => {
     expect(submit.tlvs[0].value).toEqual(Buffer.from([0x41, 0x42]));
   });
 
+  it("carries submit_multi's destination list through to the wire", async () => {
+    smsc = new FakeSmsc();
+    const h = harness();
+    await connected(h);
+
+    await h.controller.sendPdu({
+      commandId: CommandId.submit_multi,
+      fields: { source_addr: "SENDER" },
+      destList: [
+        { flag: 1, ton: 1, npi: 1, addr: "393331111111" },
+        { flag: 1, ton: 1, npi: 1, addr: "393332222222" },
+        { flag: 2, dlName: "my-list" },
+      ],
+      octetFields: { short_message: "6869" },
+    });
+
+    const multi = smsc.received.find((p) => p.commandId === CommandId.submit_multi)!;
+    expect(multi.fields.number_of_dests).toBe(3);
+    expect(multi.fields.dest_address).toEqual([
+      { flag: 1, ton: 1, npi: 1, addr: "393331111111" },
+      { flag: 1, ton: 1, npi: 1, addr: "393332222222" },
+      { flag: 2, dlName: "my-list" },
+    ]);
+  });
+
   it("sends hand-composed hex verbatim, lying command_length and all", async () => {
     smsc = new FakeSmsc();
     const h = harness();
