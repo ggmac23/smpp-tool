@@ -35,6 +35,13 @@ qx.Class.define("smppclient.Application", {
       this.__trace.addListener("notice", e => shell.showNotice(e.getData()));
       shell.getTraceSlot().add(this.__trace);
 
+      // The flow diagram labels the far end with whatever we are bound to.
+      const connection = shell.getConnectionPanel();
+      connection.addListener("bound", () => {
+        const values = connection.getFormValues();
+        this.__trace.setPeer(values.host + ":" + values.port);
+      });
+
       if (!smppclient.Api.getInstance().available()) {
         shell.showNotice(
           "Running outside the app: the main process is not reachable, so nothing can be sent."

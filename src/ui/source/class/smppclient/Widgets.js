@@ -25,6 +25,51 @@ qx.Class.define("smppclient.Widgets", {
       return grid;
     },
 
+    /**
+     * A two-field-per-row grid: label, field, label, field. Halves the height
+     * of a long form so it fits without scrolling.
+     */
+    compactGrid() {
+      const layout = new qx.ui.layout.Grid(8, 5);
+      layout.setColumnFlex(1, 1);
+      layout.setColumnFlex(3, 1);
+      layout.setColumnAlign(0, "right", "middle");
+      layout.setColumnAlign(2, "right", "middle");
+      const grid = new qx.ui.container.Composite(layout);
+      grid.setMaxWidth(980);
+      return grid;
+    },
+
+    /** Two labelled fields on one row of a `compactGrid`. */
+    pair(grid, row, label1, field1, label2, field2) {
+      grid.add(new qx.ui.basic.Label(label1), { row: row, column: 0 });
+      grid.add(field1, { row: row, column: 1 });
+      if (field2) {
+        grid.add(new qx.ui.basic.Label(label2), { row: row, column: 2 });
+        grid.add(field2, { row: row, column: 3 });
+      }
+      return [field1, field2];
+    },
+
+    /** One labelled field spanning both field columns of a `compactGrid`. */
+    wide(grid, row, label, field) {
+      grid.add(new qx.ui.basic.Label(label), { row: row, column: 0 });
+      grid.add(field, { row: row, column: 1, colSpan: 3 });
+      return field;
+    },
+
+    /**
+     * An address cell: the TON/NPI selector and the address on one line, so
+     * "Source type" and "source_addr" stop costing two rows.
+     */
+    addressCell(typeSelect, addressField) {
+      const box = new qx.ui.container.Composite(new qx.ui.layout.HBox(6));
+      typeSelect.setWidth(96);
+      box.add(typeSelect);
+      box.add(addressField, { flex: 1 });
+      return box;
+    },
+
     /** Put `field` in `grid` at `row`, labelled. Returns the field. */
     row(grid, row, labelText, field) {
       grid.add(new qx.ui.basic.Label(labelText), { row: row, column: 0 });

@@ -49,33 +49,34 @@ qx.Class.define("smppclient.SubmitForm", {
 
     __buildAddresses() {
       const W = smppclient.Widgets;
-      const grid = W.formGrid();
+      const grid = W.compactGrid();
       const f = this.__fields;
 
       const tonNpiOptions = SmppForms.TON_NPI_PRESETS.map(p => ({ label: p.label, value: p.label }));
 
-      f.sourceTonNpi = W.row(grid, 0, "Source type", W.select(tonNpiOptions, "Intl"));
-      f.sourceAddr = W.row(grid, 1, "source_addr", W.text("", "393331234567"));
-      f.destTonNpi = W.row(grid, 2, "Dest type", W.select(tonNpiOptions, "Intl"));
-      f.destinationAddr = W.row(grid, 3, "destination_addr", W.text("", "393337654321"));
-      f.registeredDelivery = W.row(
-        grid,
-        4,
-        "registered_delivery",
-        W.select(SmppForms.REGISTERED_DELIVERY, "1 — on failure and success")
+      // Type and address share a line: two rows instead of four.
+      f.sourceTonNpi = W.select(tonNpiOptions, "Intl");
+      f.sourceAddr = W.text("", "393331234567");
+      W.wide(grid, 0, "source", W.addressCell(f.sourceTonNpi, f.sourceAddr));
+
+      f.destTonNpi = W.select(tonNpiOptions, "Intl");
+      f.destinationAddr = W.text("", "393337654321");
+      W.wide(grid, 1, "destination", W.addressCell(f.destTonNpi, f.destinationAddr));
+
+      f.registeredDelivery = W.select(SmppForms.REGISTERED_DELIVERY, "1 — on failure and success");
+      f.dataCoding = W.select(SmppForms.DATA_CODINGS, "0 — GSM 03.38 default");
+      W.pair(grid, 2, "registered_delivery", f.registeredDelivery, "data_coding", f.dataCoding);
+
+      f.scheduleDelivery = W.select(
+        SmppForms.SCHEDULE_DELIVERY.map(o => ({ label: o.label })),
+        "Immediate"
       );
-      f.scheduleDelivery = W.row(
-        grid,
-        5,
-        "schedule_delivery_time",
-        W.select(SmppForms.SCHEDULE_DELIVERY.map(o => ({ label: o.label })), "Immediate")
+      f.validityPeriod = W.select(
+        SmppForms.VALIDITY_PERIODS.map(o => ({ label: o.label })),
+        "Default"
       );
-      f.validityPeriod = W.row(
-        grid,
-        6,
-        "validity_period",
-        W.select(SmppForms.VALIDITY_PERIODS.map(o => ({ label: o.label })), "Default")
-      );
+      W.pair(grid, 3, "schedule", f.scheduleDelivery, "validity", f.validityPeriod);
+
       return grid;
     },
 
@@ -93,21 +94,23 @@ qx.Class.define("smppclient.SubmitForm", {
       const group = new qx.ui.groupbox.GroupBox("All fields");
       group.setLayout(new qx.ui.layout.VBox(4));
 
-      const grid = W.formGrid();
+      const grid = W.compactGrid();
       const f = this.__fields;
 
-      f.serviceType = W.row(grid, 0, "service_type", W.text(""));
-      f.esmClass = W.row(grid, 1, "esm_class", W.select(SmppForms.ESM_CLASSES, "0 — Default"));
-      f.protocolId = W.row(grid, 2, "protocol_id", W.number(0, 0, 255));
-      f.priorityFlag = W.row(
-        grid,
-        3,
-        "priority_flag",
-        W.select(SmppForms.PRIORITY_FLAGS, "0 — non-priority")
-      );
-      f.replaceIfPresent = W.row(grid, 4, "replace_if_present_flag", W.number(0, 0, 1));
-      f.smDefaultMsgId = W.row(grid, 5, "sm_default_msg_id", W.number(0, 0, 255));
-      f.udhHex = W.row(grid, 6, "UDH (hex)", W.text("", "e.g. 05 00 03 2a 03 01"));
+      f.serviceType = W.text("");
+      f.esmClass = W.select(SmppForms.ESM_CLASSES, "0 — Default");
+      W.pair(grid, 0, "service_type", f.serviceType, "esm_class", f.esmClass);
+
+      f.protocolId = W.number(0, 0, 255);
+      f.priorityFlag = W.select(SmppForms.PRIORITY_FLAGS, "0 — non-priority");
+      W.pair(grid, 1, "protocol_id", f.protocolId, "priority_flag", f.priorityFlag);
+
+      f.replaceIfPresent = W.number(0, 0, 1);
+      f.smDefaultMsgId = W.number(0, 0, 255);
+      W.pair(grid, 2, "replace_if_present", f.replaceIfPresent, "sm_default_msg_id", f.smDefaultMsgId);
+
+      f.udhHex = W.text("", "e.g. 05 00 03 2a 03 01");
+      W.wide(grid, 3, "UDH (hex)", f.udhHex);
       group.add(grid);
 
       group.add(W.heading("TLVs"));
@@ -124,35 +127,17 @@ qx.Class.define("smppclient.SubmitForm", {
       const box = new qx.ui.container.Composite(new qx.ui.layout.VBox(4));
       const f = this.__fields;
 
-      const options = W.formGrid();
-      f.dataCoding = W.row(
-        options,
-        0,
-        "data_coding",
-        W.select(SmppForms.DATA_CODINGS, "0 — GSM 03.38 default")
-      );
-      f.placement = W.row(
-        options,
-        1,
-        "Body in",
-        W.select(SmppForms.BODY_PLACEMENTS, "short_message")
-      );
-      f.segmentation = W.row(
-        options,
-        2,
-        "Segmentation",
-        W.select(SmppForms.SEGMENTATION_MODES, "UDH concatenation")
-      );
-      f.packing = W.row(
-        options,
-        3,
-        "GSM7 layout",
-        W.select(SmppForms.GSM7_PACKINGS, "Unpacked (one septet per octet)")
-      );
+      const options = W.compactGrid();
+      f.placement = W.select(SmppForms.BODY_PLACEMENTS, "short_message");
+      f.segmentation = W.select(SmppForms.SEGMENTATION_MODES, "UDH concatenation");
+      W.pair(options, 0, "body in", f.placement, "segmentation", f.segmentation);
+
+      f.packing = W.select(SmppForms.GSM7_PACKINGS, "Unpacked (one septet per octet)");
+      W.wide(options, 1, "GSM7 layout", f.packing);
       box.add(options);
 
       f.text = new qx.ui.form.TextArea("");
-      f.text.setHeight(120);
+      f.text.setMinHeight(90);
       f.text.addListener("input", () => this.__refreshCounter());
       box.add(f.text);
 

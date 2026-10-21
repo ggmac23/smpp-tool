@@ -54,6 +54,8 @@ qx.Class.define("smppclient.TracePanel", {
      */
     __seqByRow: null,
     __compact: false,
+    __flow: null,
+    __peer: null,
 
     /* ---------------------------------------------------------------- */
 
@@ -78,6 +80,10 @@ qx.Class.define("smppclient.TracePanel", {
       bar.add(clear);
 
       bar.add(new qx.ui.core.Spacer(), { flex: 1 });
+
+      const flow = new qx.ui.form.Button("Flow diagram");
+      flow.addListener("execute", () => this.showFlow());
+      bar.add(flow);
 
       const editHex = new qx.ui.form.Button("Edit as hex");
       editHex.addListener("execute", () => this.editSelectedAsHex());
@@ -228,6 +234,34 @@ qx.Class.define("smppclient.TracePanel", {
         return;
       }
       this.fireDataEvent("editAsHex", hex);
+    },
+
+    /**
+     * Open the ladder diagram for everything in the trace. The window is kept
+     * so reopening it does not lose its position.
+     */
+    showFlow() {
+      if (!this.__flow) {
+        this.__flow = new smppclient.FlowDiagram();
+        qx.core.Init.getApplication().getRoot().add(this.__flow);
+      }
+      const rows = this.__seqByRow.map(seq => this.__rowsBySeq[seq]).filter(Boolean);
+      this.__flow.setPeers("ESME", this.__peer || "SMSC");
+      this.__flow.display(rows);
+      return this.__flow;
+    },
+
+    /** Name the far end, so the diagram can label its lifeline. */
+    setPeer(label) {
+      this.__peer = label;
+      if (this.__flow) {
+        this.__flow.setPeers("ESME", label);
+      }
+    },
+
+    /** The flow window, once opened. */
+    getFlowDiagram() {
+      return this.__flow;
     },
 
     /** The hex dump currently shown, for verification. */

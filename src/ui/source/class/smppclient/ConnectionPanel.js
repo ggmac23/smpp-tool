@@ -19,7 +19,6 @@ qx.Class.define("smppclient.ConnectionPanel", {
     const W = smppclient.Widgets;
     this.__api = smppclient.Api.getInstance();
 
-    this.add(this.__buildStatusStrip());
     this.add(W.group("Profile", this.__buildProfiles()));
     this.add(W.group("Server", this.__buildServer()));
     this.add(this.__buildTlsGroup());
@@ -38,14 +37,15 @@ qx.Class.define("smppclient.ConnectionPanel", {
   events: {
     /** Fired after a successful bind. Data: the bind mode. */
     bound: "qx.event.type.Data",
+    /** Bind state changed. Data: { state, mode, label }. */
+    stateChanged: "qx.event.type.Data",
     /** Fired with a one-line message the shell should show. Data: string. */
     notice: "qx.event.type.Data"
   },
 
   members: {
     __api: null,
-    __state: null,
-    __dot: null,
+    __state: "Unbound",
     __counters: null,
     __fields: null,
     __profiles: null,
@@ -53,22 +53,6 @@ qx.Class.define("smppclient.ConnectionPanel", {
 
     /* ---------------------------------------------------------------- */
     /* construction                                                      */
-
-    /** Bind state as a coloured dot plus its label. */
-    __buildStatusStrip() {
-      const box = new qx.ui.container.Composite(new qx.ui.layout.HBox(8));
-      box.setPadding(2, 0, 6, 0);
-
-      this.__dot = new qx.ui.basic.Label("\u25cf");
-      this.__dot.setTextColor("#999999");
-      box.add(this.__dot);
-
-      this.__state = new qx.ui.basic.Label("Unbound");
-      this.__state.setFont("bold");
-      box.add(this.__state, { flex: 1 });
-
-      return box;
-    },
 
     __buildProfiles() {
       const W = smppclient.Widgets;
@@ -285,7 +269,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
 
     /** The text the state indicator currently shows. */
     getStateLabel() {
-      return this.__state.getValue();
+      return this.__state;
     },
 
     /** The counters block, as shown. */
@@ -442,22 +426,32 @@ qx.Class.define("smppclient.ConnectionPanel", {
     /* events from the main process                                      */
 
     __onState(payload) {
-      this.__state.setValue(SmppForms.stateLabel(payload.state, payload.mode));
-      const colours = {
-        unbound: "#999999",
-        binding: "#c08000",
-        bound: "#2e8b2e",
-        unbinding: "#c08000",
-        closed: "#b03030"
-      };
-      this.__dot.setTextColor(colours[payload.state] || "#999999");
+      this.__state = SmppForms.stateLabel(payload.state, payload.mode);
+      this.fireDataEvent("stateChanged", {
+        state: payload.state,
+        mode: payload.mode,
+        label: this.__state
+      });
     },
 
     __onCounters(counters) {
       const names = Object.keys(counters || {}).sort();
-      const lines = names.map(name => {
+      if (names.length === 0) {
+        this.__counters.setValue("");
+        return;
+      }
+      // The column is narrow, so the numbers are right-aligned into a fixed
+      // width instead of being pushed off the edge by a long command name.
+      const width = Math.min(26, names.reduce((w, n) => Math.max(w, n.length), 0));
+      const pad = (text, n) =>
+        text.length >= n ? text : text + new Array(n - text.length + 1).join(" ");
+      const padLeft = (text, n) =>
+        text.length >= n ? text : new Array(n - text.length + 1).join(" ") + text;
+
+      const lines = [pad("command", width) + padLeft("sent", 7) + padLeft("recv", 7)];
+      names.forEach(name => {
         const c = counters[name];
-        return name + "  sent " + c.sent + " / recv " + c.received;
+        lines.push(pad(name, width) + padLeft(String(c.sent), 7) + padLeft(String(c.received), 7));
       });
       this.__counters.setValue(lines.join("\n"));
     }
