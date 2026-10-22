@@ -121,13 +121,23 @@ fn step(phase: usize, port: u16) -> String {
       var burst = app.getPanels().burst;
       if (!window.__p6) {
         window.__p6 = true;
-        burst.setFormValues({ count: 20, ratePerSec: 100, awaitDlrMs: 1500 });
-        window.__p6promise = burst.start();
+        // A one-part body: the three-part sample is still in the form from
+        // the earlier phase, and 20 messages of it would be 60 PDUs.
+        app.getSubmitForm().setFormValues({
+          text: "burst",
+          dataCodingLabel: "0 \u2014 GSM 03.38 default",
+          segmentationLabel: "None \u2014 one PDU"
+        });
+        burst.setFormValues({ count: 20, ratePerSec: 100, awaitDlrMs: 2000 });
+        burst.start();
         return { done: false };
       }
-      var stats = burst.getStatsText ? burst.getStatsText() : "";
-      if (!stats || stats.indexOf("Accepted") < 0) { return { done: false, stats: stats.slice(0, 40) }; }
-      return { done: true, stats: stats, rows: burst.getRowCount ? burst.getRowCount() : null };
+      var stats = burst.getStatsText() || "";
+      // Wait for the run to finish rather than reading it mid-flight.
+      if (stats.indexOf("Messages          20") < 0) {
+        return { done: false, stats: stats.split("\n")[0] };
+      }
+      return { done: true, stats: stats, rows: burst.getRowCount() };
 "#
         .to_string(),
         7 => r#"
@@ -221,18 +231,28 @@ fn main() {
             if status == ESME_ROK {
                 ids.lock().unwrap().push(id.clone());
             }
-            Some(vec![PduInput::new(
+
+            let mut replies = vec![PduInput::new(
                 command_id("submit_sm_resp").unwrap(),
                 pdu.sequence_number,
             )
             .with_status(status)
-            .with_str("message_id", &id)])
+            .with_str("message_id", &id)];
+
+            // During the burst, every accepted message gets its receipt in
+            // the same breath as the response. That is the race the
+            // correlator has to survive, so it is worth exercising here.
+            if throttling && status == ESME_ROK {
+                replies.push(receipt(&id));
+            }
+            Some(replies)
         });
     }
 
     let port = runtime.block_on(smsc.listen());
 
     let smsc_for_app = smsc.clone();
+    let submits_counter = submits.clone();
     let ids_for_app = ids.clone();
     let bursting_for_app = bursting.clone();
 
@@ -243,6 +263,7 @@ fn main() {
             smppclient::commands::install(&app.handle().clone()).expect("install the commands");
             let window: WebviewWindow = app.get_webview_window("main").expect("no main window");
             let smsc = smsc_for_app.clone();
+            let submits_counter = submits_counter.clone();
             let ids = ids_for_app.clone();
             let bursting = bursting_for_app.clone();
 
@@ -267,6 +288,10 @@ fn main() {
                             smsc.send_raw(&bytes);
                         }
                         6 => {
+                            // The throttle counts from the start of the burst,
+                            // so one in five of the burst is throttled rather
+                            // than one in five of everything sent so far.
+                            submits_counter.store(0, Ordering::SeqCst);
                             bursting.store(1, Ordering::SeqCst);
                         }
                         _ => {}
