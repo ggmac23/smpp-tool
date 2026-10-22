@@ -13,12 +13,14 @@
     "build": "npm run build:main && npm run build:ui",
     "start": "electron .",
     "dist": "npm run build && electron-builder",
-    "tauri:dev": "cd src-tauri && cargo run",
-    "tauri:build": "npm run build:ui && cd src-tauri && cargo build --release",
-    "rust:test": "cd src-tauri && cargo test"
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "rust:test": "cd src-tauri && cargo test",
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@qooxdoo/framework": "7.9.3",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/node": "^24.0.0",
     "electron": "^34.0.0",
     "electron-builder": "^25.0.0",
