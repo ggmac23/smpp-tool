@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::mpsc;
 
 use crate::app::dlr::{CorrelationConfig, DlrCorrelator};
@@ -285,7 +286,10 @@ impl BurstRunner {
 
     /// Pace the submits and wait for them to settle.
     async fn pump(&self, cfg: &BurstConfig, numbers: &[String]) {
-        let mut inflight = Vec::new();
+        // The sends must run while the loop waits for its next tick. A plain
+        // Vec of futures would only be polled at the end, and the whole burst
+        // would leave in one clump no matter what rate was asked for.
+        let mut inflight = FuturesUnordered::new();
         let mut i = 0usize;
 
         while i < numbers.len() {
@@ -321,14 +325,12 @@ impl BurstRunner {
             }
 
             let spent = tick_started.elapsed();
-            if spent < wait {
-                tokio::time::sleep(wait - spent).await;
-            }
+            drive(&mut inflight, wait.saturating_sub(spent)).await;
 
             self.emit_progress(numbers.len());
         }
 
-        futures_util::future::join_all(inflight).await;
+        while inflight.next().await.is_some() {}
         self.emit_progress(numbers.len());
     }
 
@@ -518,6 +520,23 @@ impl BurstRunner {
     }
 }
 
+/// Lets the queued sends run for `how_long`, which is how the burst is paced:
+/// the loop hands out work and then spends the rest of the tick letting it
+/// happen, rather than piling futures up for a single flush at the end.
+async fn drive<F>(inflight: &mut FuturesUnordered<F>, how_long: Duration)
+where
+    F: std::future::Future<Output = ()>,
+{
+    let sleep = tokio::time::sleep(how_long);
+    tokio::pin!(sleep);
+    loop {
+        tokio::select! {
+            _ = &mut sleep => return,
+            _ = inflight.next(), if !inflight.is_empty() => {}
+        }
+    }
+}
+
 fn stats_of(state: &State) -> BurstStats {
     let mut sorted = state.latencies.clone();
     sorted.sort_unstable();
@@ -641,6 +660,40 @@ mod tests {
             backoff_on_throttle: false,
             await_dlr: Duration::from_millis(300),
         }
+    }
+
+    #[tokio::test]
+    async fn paces_the_sending_instead_of_bursting_it_at_the_end() {
+        // Ten messages at 10/sec must reach the SMSC spread over about a
+        // second. A pacing loop that queues work without letting it run would
+        // satisfy every rate assertion and still put the whole burst on the
+        // wire in one clump.
+        let smsc = FakeSmsc::new();
+        let arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let seen = arrivals.clone();
+        smsc.on("submit_sm", move |_p| {
+            seen.lock().unwrap().push(Instant::now());
+            None
+        });
+        let (session, events) = bound(&smsc, 20).await;
+        let runner = runner_for(session, events);
+
+        let done = runner
+            .start(BurstConfig {
+                await_dlr: Duration::ZERO,
+                ..config(10, 10)
+            })
+            .await
+            .unwrap();
+        assert_eq!(done.stats.submitted, 10);
+
+        let at = arrivals.lock().unwrap().clone();
+        assert_eq!(at.len(), 10, "the SMSC did not see every submit");
+        let spread = at.last().unwrap().duration_since(*at.first().unwrap());
+        assert!(
+            spread >= Duration::from_millis(600),
+            "the submits arrived within {spread:?} of each other, so nothing was paced"
+        );
     }
 
     #[tokio::test]

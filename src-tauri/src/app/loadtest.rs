@@ -228,7 +228,8 @@ struct Connection {
     index: usize,
     session: Option<Arc<Session>>,
     bind_error: Option<String>,
-    tally: Tally,
+    /// Shared so each send can run as its own task.
+    tally: Arc<Tally>,
 }
 
 pub struct LoadRunner {
@@ -363,7 +364,7 @@ impl LoadRunner {
                         index,
                         session: None,
                         bind_error: Some(e),
-                        tally: Tally::default(),
+                        tally: Arc::new(Tally::default()),
                     },
                     Ok((transport, events)) => {
                         let (session, session_events) = Session::new(
@@ -386,7 +387,7 @@ impl LoadRunner {
                                 index,
                                 session: Some(Arc::new(session)),
                                 bind_error: None,
-                                tally: Tally::default(),
+                                tally: Arc::new(Tally::default()),
                             },
                             // A connection that will not bind is reported, not
                             // retried, and the test carries on without it.
@@ -394,7 +395,7 @@ impl LoadRunner {
                                 index,
                                 session: None,
                                 bind_error: Some(e),
-                                tally: Tally::default(),
+                                tally: Arc::new(Tally::default()),
                             },
                         }
                     }
@@ -426,7 +427,11 @@ impl LoadRunner {
             esm_class: 0,
         });
 
-        let mut inflight = Vec::new();
+        // Each send is its own task, so they run while the pacing loop waits
+        // for its next tick and spread across the runtime's worker threads. A
+        // plain Vec of futures would only be polled at the end, and the whole
+        // load would land in one clump no matter what rate was asked for.
+        let mut inflight: Vec<tokio::task::JoinHandle<()>> = Vec::new();
         let mut sent = 0usize;
         let mut next = 0usize;
 
@@ -459,13 +464,13 @@ impl LoadRunner {
                 let Some(session) = connections[index].session.clone() else {
                     continue;
                 };
-                let tally = &connections[index].tally;
+                let tally = connections[index].tally.clone();
                 let template = cfg.template.clone();
                 let destination = cfg.destination.clone();
                 let data_coding = cfg.data_coding;
                 let segments = segments.clone();
 
-                inflight.push(async move {
+                inflight.push(tokio::spawn(async move {
                     for seg in &segments {
                         let mut input = template.clone();
                         for (name, value) in &seg.fields {
@@ -486,7 +491,7 @@ impl LoadRunner {
                             }
                         }
                     }
-                });
+                }));
             }
 
             let spent = tick_started.elapsed();
@@ -496,7 +501,9 @@ impl LoadRunner {
             self.emit_progress(connections, budget, rate);
         }
 
-        futures_util::future::join_all(inflight).await;
+        for handle in inflight {
+            let _ = handle.await;
+        }
         self.emit_progress(connections, budget, rate);
         sent
     }
@@ -858,6 +865,34 @@ mod tests {
             report.achieved_rate_per_sec
         );
         assert_eq!(report.ended, LoadEndReason::Complete);
+    }
+
+    #[tokio::test]
+    async fn paces_the_sending_instead_of_bursting_it_at_the_end() {
+        // 10 messages at 10/sec must be spread over about a second. Lazy
+        // futures queued by the pacing loop and only polled at the end would
+        // satisfy every rate assertion while putting the whole load on the
+        // wire in one clump — the exact opposite of a load test.
+        let smsc = FakeSmsc::new();
+        let arrivals = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let seen = arrivals.clone();
+        smsc.on("submit_sm", move |_p| {
+            seen.lock().unwrap().push(Instant::now());
+            None
+        });
+        let port = smsc.listen().await;
+
+        let runner = LoadRunner::new();
+        let report = runner.start(config(port, 1, 10, fixed(10))).await.unwrap();
+        assert_eq!(report.submitted, 10);
+
+        let at = arrivals.lock().unwrap().clone();
+        assert_eq!(at.len(), 10, "the SMSC did not see every submit");
+        let spread = at.last().unwrap().duration_since(*at.first().unwrap());
+        assert!(
+            spread >= Duration::from_millis(600),
+            "the submits arrived within {spread:?} of each other, so nothing was paced"
+        );
     }
 
     #[tokio::test]
