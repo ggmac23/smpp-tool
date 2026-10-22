@@ -475,6 +475,16 @@ impl LoadRunner {
         let mut next = 0usize;
         let mut lost = false;
         let sending_started = Instant::now();
+        // Messages owed but not yet whole. A tick is 20ms, so a rate is a
+        // fractional number of messages per tick; rounding it each time
+        // quantises every rate above 50/sec to a multiple of 50. Carrying the
+        // remainder spends it on the next tick instead.
+        let mut owed = 0.0f64;
+        // When the next tick is due, measured from the start rather than from
+        // the end of the last one. Sleeping for "the rest of this tick" lets
+        // the cost of the tick itself accumulate, and the run comes out a few
+        // per cent short at every rate — which reads as the SMSC and is not.
+        let mut due = sending_started;
 
         while sent < budget {
             if self.stopping.load(Ordering::SeqCst) {
@@ -499,12 +509,16 @@ impl LoadRunner {
 
             let per_tick = rate as f64 * TICK.as_secs_f64();
             let (to_send, wait) = if per_tick >= 1.0 {
-                (per_tick.round() as usize, TICK)
+                owed += per_tick;
+                let whole = owed.floor();
+                owed -= whole;
+                (whole as usize, TICK)
             } else {
+                // Below one a tick, sending one and waiting the whole gap is
+                // exact and costs fewer wakeups.
                 (1, Duration::from_secs_f64(1.0 / rate.max(1) as f64))
             };
 
-            let tick_started = Instant::now();
             for _ in 0..to_send {
                 if sent >= budget || self.stopping.load(Ordering::SeqCst) {
                     break;
@@ -548,9 +562,14 @@ impl LoadRunner {
                 }));
             }
 
-            let spent = tick_started.elapsed();
-            if spent < wait {
-                tokio::time::sleep(wait - spent).await;
+            due += wait;
+            let now = Instant::now();
+            if due > now {
+                tokio::time::sleep(due - now).await;
+            } else if now - due > wait {
+                // Too far behind to make up: carry on from here rather than
+                // firing a burst to catch a schedule that has run away.
+                due = now;
             }
             self.emit_progress(connections, budget, rate);
         }
@@ -1245,6 +1264,52 @@ mod tests {
         assert!(
             report.achieved_rate_per_sec > 17.0,
             "20/sec paced correctly came out as {:.1}/sec, which is the wait, not the rate",
+            report.achieved_rate_per_sec
+        );
+    }
+
+    #[tokio::test]
+    async fn sends_the_rate_that_was_asked_for_between_the_tick_multiples() {
+        // The pacer works in 20ms ticks, so a rate is a number of messages
+        // per tick. Rounding that number quantises every rate above 50/sec to
+        // a multiple of 50: a request for 60 goes out at 50, and one for 75
+        // at 100. For a tool whose job is to state a rate exactly, the
+        // measurement would then be of the pacer rather than the SMSC.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+
+        let report = LoadRunner::new()
+            .start(config(port, 2, 120, fixed(60)))
+            .await
+            .unwrap();
+
+        assert_eq!(report.submitted, 120);
+        assert!(
+            (report.achieved_rate_per_sec - 60.0).abs() < 6.0,
+            "asked for 60/sec and sent at {:.1}/sec",
+            report.achieved_rate_per_sec
+        );
+    }
+
+    #[tokio::test]
+    async fn holds_the_rate_without_drifting_behind_its_own_clock() {
+        // Sleeping for "the rest of this tick" lets the cost of the tick
+        // itself accumulate: every tick runs a little long, and the run comes
+        // out a few per cent short of the rate at every rate. Against a real
+        // SMSC that showed as a uniform 8% shortfall from 25/sec to 150/sec,
+        // which looks like the server and is not.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+
+        let report = LoadRunner::new()
+            .start(config(port, 2, 200, fixed(100)))
+            .await
+            .unwrap();
+
+        assert_eq!(report.submitted, 200);
+        assert!(
+            report.achieved_rate_per_sec > 96.0,
+            "asked for 100/sec and held {:.1}/sec; the drift is the pacer's own",
             report.achieved_rate_per_sec
         );
     }

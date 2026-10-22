@@ -294,6 +294,13 @@ impl BurstRunner {
         // would leave in one clump no matter what rate was asked for.
         let mut inflight = FuturesUnordered::new();
         let mut i = 0usize;
+        // Messages owed but not yet whole: see the same accumulator in the
+        // load test. Rounding per tick would quantise every rate above
+        // 50/sec to a multiple of 50.
+        let mut owed = 0.0f64;
+        // The same absolute schedule the load test keeps: sleeping for "the
+        // rest of this tick" lets the tick's own cost accumulate.
+        let mut due = Instant::now();
 
         while i < numbers.len() {
             if self.state.lock().unwrap().stopping {
@@ -313,12 +320,14 @@ impl BurstRunner {
             let rate = self.state.lock().unwrap().rate.max(1);
             let per_tick = rate as f64 * TICK.as_secs_f64();
             let (to_send, wait) = if per_tick >= 1.0 {
-                (per_tick.round() as usize, TICK)
+                owed += per_tick;
+                let whole = owed.floor();
+                owed -= whole;
+                (whole as usize, TICK)
             } else {
                 (1, Duration::from_secs_f64(1.0 / rate as f64))
             };
 
-            let tick_started = Instant::now();
             for _ in 0..to_send {
                 if i >= numbers.len() || self.state.lock().unwrap().stopping {
                     break;
@@ -327,8 +336,17 @@ impl BurstRunner {
                 i += 1;
             }
 
-            let spent = tick_started.elapsed();
-            drive(&mut inflight, wait.saturating_sub(spent)).await;
+            due += wait;
+            let now = Instant::now();
+            let remaining = if due > now {
+                due - now
+            } else {
+                if now - due > wait {
+                    due = now;
+                }
+                Duration::ZERO
+            };
+            drive(&mut inflight, remaining).await;
 
             self.emit_progress(numbers.len());
         }
