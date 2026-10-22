@@ -9,6 +9,8 @@
 //! The renderer never builds or parses a PDU. It sends intents through the
 //! Tauri commands and receives events; bytes cross as lowercase hex strings.
 
+pub mod smpp;
+
 /// Start the application. Kept here rather than in `main.rs` so integration
 /// tests can link the library without launching a window.
 pub fn run() {
