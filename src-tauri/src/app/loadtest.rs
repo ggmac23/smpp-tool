@@ -17,7 +17,6 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::mpsc;
 
-use crate::app::recipients::{MAX_BURST, MAX_RATE};
 use crate::app::session::{BindOptions, BindState, Session, SessionOptions};
 use crate::app::transport::{TlsOptions, Transport, TransportOptions};
 use crate::smpp::constants::{command_status_name, ESME_ROK};
@@ -27,7 +26,25 @@ use crate::smpp::text::{Gsm7Packing, SegmentationMode};
 
 /// More binds than this against one SMSC stops being a test and starts being
 /// an outage. The limit is this build's, and the refusal says so.
-pub const MAX_CONNECTIONS: usize = 16;
+/// Connections this build opens at once. The number is a guardrail against a
+/// typo, not a protocol limit or a judgement about what an SMSC can take: it
+/// used to be 16, which became the binding constraint the moment somebody
+/// pointed this at a server that could carry more than the tester could ask
+/// for.
+pub const MAX_CONNECTIONS: usize = 64;
+
+/// What one connection may be asked to carry. Separate from the burst's
+/// ceiling on purpose: a burst keeps a row per message and is a delivery
+/// audit, while this is a throughput test whose only cost per message is the
+/// send itself. Like `MAX_CONNECTIONS` it is a guardrail against a typo, and
+/// the refusal says so.
+pub const MAX_RATE_PER_CONNECTION: u32 = 5_000;
+
+/// Messages one run may ask for. Separate from the burst's ceiling for the
+/// same reason as the rate: a burst keeps a row per message, while all this
+/// keeps is one latency sample, eight bytes, so a million of them is eight
+/// megabytes spread over the connections. A guardrail against a typo.
+pub const MAX_MESSAGES: usize = 1_000_000;
 
 const TICK: Duration = Duration::from_millis(20);
 
@@ -273,9 +290,9 @@ impl LoadRunner {
         if cfg.connections < 1 {
             return Err("a load test needs at least one connection".into());
         }
-        if cfg.messages > MAX_BURST {
+        if cfg.messages > MAX_MESSAGES {
             return Err(format!(
-                "{} messages is above the {MAX_BURST} ceiling of this build",
+                "{} messages is above the {MAX_MESSAGES} ceiling of this build",
                 cfg.messages
             ));
         }
@@ -283,7 +300,7 @@ impl LoadRunner {
             return Err("a load test needs at least one message".into());
         }
 
-        let ceiling = MAX_RATE * cfg.connections as u32;
+        let ceiling = MAX_RATE_PER_CONNECTION * cfg.connections as u32;
         let requested = match cfg.mode {
             LoadMode::Fixed { rate_per_sec } => rate_per_sec,
             LoadMode::Ramp { max_rate, .. } => max_rate,
@@ -485,6 +502,7 @@ impl LoadRunner {
         // the cost of the tick itself accumulate, and the run comes out a few
         // per cent short at every rate — which reads as the SMSC and is not.
         let mut due = sending_started;
+        let mut behind = false;
 
         while sent < budget {
             if self.stopping.load(Ordering::SeqCst) {
@@ -568,7 +586,9 @@ impl LoadRunner {
                 tokio::time::sleep(due - now).await;
             } else if now - due > wait {
                 // Too far behind to make up: carry on from here rather than
-                // firing a burst to catch a schedule that has run away.
+                // firing a burst to catch a schedule that has run away. This
+                // is the client's own limit, not the SMSC's.
+                behind = true;
                 due = now;
             }
             self.emit_progress(connections, budget, rate);
@@ -584,6 +604,7 @@ impl LoadRunner {
             sent,
             lost,
             sending,
+            behind,
         }
     }
 
@@ -678,6 +699,13 @@ impl LoadRunner {
                 Some(format!(
                     "p95 latency reached {}ms, above the {}ms allowed",
                     measured.latency_p95, abandon_on.latency_p95_ms
+                ))
+            } else if outcome.behind {
+                Some(format!(
+                    "asked for {}/sec and this client only managed {:.1}/sec — it ran out \
+                     of room before the SMSC did, so this is the tester's limit and not \
+                     the server's",
+                    measured.requested_rate, measured.achieved_rate
                 ))
             } else {
                 Some(format!(
@@ -818,6 +846,10 @@ struct StepOutcome {
     /// come back: a real SMSC answers after a round trip, so counting that
     /// against the rate makes a run that paced perfectly look slow.
     sending: Duration,
+    /// Whether this client fell behind its own schedule. A rate it could not
+    /// hand out is not a rate the SMSC refused, and a report that confuses
+    /// the two sends the user to tune the wrong machine.
+    behind: bool,
 }
 
 #[derive(Default, Clone)]
@@ -1177,7 +1209,7 @@ mod tests {
         let runner = LoadRunner::new();
         let mut cfg = config(1, 1, 10, fixed(10));
         cfg.mode = LoadMode::Ramp {
-            start_rate: MAX_RATE * 10,
+            start_rate: MAX_RATE_PER_CONNECTION * 10,
             step: 50,
             step_duration: Duration::from_millis(100),
             max_rate: 100,
@@ -1447,7 +1479,7 @@ mod tests {
         let port = smsc.listen().await;
         let runner = LoadRunner::new();
 
-        let ceiling = MAX_RATE * 2;
+        let ceiling = MAX_RATE_PER_CONNECTION * 2;
         let err = runner
             .start(config(port, 2, 10, fixed(ceiling + 1)))
             .await
@@ -1461,10 +1493,10 @@ mod tests {
         let port = smsc.listen().await;
         let runner = LoadRunner::new();
         let err = runner
-            .start(config(port, 1, MAX_BURST + 1, fixed(100)))
+            .start(config(port, 1, MAX_MESSAGES + 1, fixed(100)))
             .await
             .unwrap_err();
-        assert!(err.contains(&MAX_BURST.to_string()), "{err}");
+        assert!(err.contains(&MAX_MESSAGES.to_string()), "{err}");
     }
 
     #[tokio::test]

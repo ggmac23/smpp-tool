@@ -55,7 +55,7 @@ qx.Class.define("smppclient.HexComposer", {
     __sendButton: null,
 
     __buildActions() {
-      this.__sendButton = smppclient.Widgets.primaryButton("Send bytes", smppclient.Widgets.ACCENT_SEND);
+      this.__sendButton = smppclient.Widgets.primaryButton("Send bytes");
       this.__sendButton.addListener("execute", () => this.send());
 
       const clear = new qx.ui.form.Button("Clear");

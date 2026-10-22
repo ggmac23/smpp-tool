@@ -106,7 +106,7 @@ qx.Class.define("smppclient.BurstPanel", {
     __buildActions() {
       const W = smppclient.Widgets;
 
-      this.__startButton = W.primaryButton("Start burst", W.ACCENT_SEND);
+      this.__startButton = W.primaryButton("Start burst");
       this.__startButton.addListener("execute", () => this.start());
 
       const stop = new qx.ui.form.Button("Stop");

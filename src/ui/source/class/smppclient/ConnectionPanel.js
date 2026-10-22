@@ -170,7 +170,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
     __buildActions() {
       const W = smppclient.Widgets;
 
-      const bind = W.primaryButton("Bind", W.ACCENT_BIND);
+      const bind = W.primaryButton("Bind");
       bind.addListener("execute", () => this.bind());
 
       const unbind = new qx.ui.form.Button("Unbind");

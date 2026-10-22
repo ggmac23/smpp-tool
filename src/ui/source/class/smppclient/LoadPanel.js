@@ -81,14 +81,14 @@ qx.Class.define("smppclient.LoadPanel", {
       W.pair(grid, 0, "Connections", f.connections, "Messages", f.messages);
 
       f.mode = W.select(SmppForms.LOAD_MODES, "Fixed rate");
-      f.ratePerSec = W.number(200, 1, 8000);
+      f.ratePerSec = W.number(200, 1, 320000);
       W.pair(grid, 1, "Mode", f.mode, "Rate /s", f.ratePerSec);
 
-      f.startRate = W.number(50, 1, 8000);
-      f.step = W.number(50, 1, 8000);
+      f.startRate = W.number(50, 1, 320000);
+      f.step = W.number(50, 1, 320000);
       W.pair(grid, 2, "Ramp from /s", f.startRate, "Step /s", f.step);
 
-      f.maxRate = W.number(500, 1, 8000);
+      f.maxRate = W.number(500, 1, 320000);
       f.stepSeconds = W.number(10, 1, 600);
       W.pair(grid, 3, "Up to /s", f.maxRate, "Step seconds", f.stepSeconds);
 
@@ -121,7 +121,7 @@ qx.Class.define("smppclient.LoadPanel", {
     __buildActions() {
       const W = smppclient.Widgets;
 
-      this.__startButton = W.primaryButton("Start load test", W.ACCENT_BIND);
+      this.__startButton = W.primaryButton("Start load test");
       this.__startButton.addListener("execute", () => this.start());
 
       const stop = new qx.ui.form.Button("Stop");

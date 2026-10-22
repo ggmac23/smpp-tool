@@ -9,11 +9,18 @@
  * enforces them again. Checking in the renderer is only so the refusal
  * arrives before a single bind goes out.
  */
-import { MAX_BURST, MAX_RATE } from "./protocol";
+import { MAX_BURST } from "./protocol";
 import type { LimitCheck, StatEntry } from "./stats";
 
 /** Connections this build opens at once. The backend holds the same number. */
-export const MAX_CONNECTIONS = 16;
+export const MAX_CONNECTIONS = 64;
+
+/**
+ * What one connection may be asked to carry. Separate from the burst's
+ * ceiling: a burst keeps a row per message, while this is a throughput test.
+ * Both numbers are guardrails against a typo, not protocol limits.
+ */
+export const MAX_RATE_PER_CONNECTION = 5000;
 
 export const LOAD_MODES = [
   { label: "Fixed rate", value: "fixed" },
@@ -137,7 +144,7 @@ export function checkLoadLimits(v: LoadFormValues): LimitCheck {
   }
 
   // The ceiling is per connection, so connections multiply it.
-  const ceiling = MAX_RATE * v.connections;
+  const ceiling = MAX_RATE_PER_CONNECTION * v.connections;
   const kind = kindOf(v.modeLabel);
 
   if (kind === "fixed") {
@@ -147,7 +154,7 @@ export function checkLoadLimits(v: LoadFormValues): LimitCheck {
     if (v.ratePerSec > ceiling) {
       return refuse(
         `${v.ratePerSec}/s is above what ${v.connections} connection(s) carry in this ` +
-          `build: ${MAX_RATE}/s each, so ${ceiling}/s.`
+          `build: ${MAX_RATE_PER_CONNECTION}/s each, so ${ceiling}/s.`
       );
     }
     return { ok: true, reason: "" };
@@ -165,7 +172,7 @@ export function checkLoadLimits(v: LoadFormValues): LimitCheck {
   if (v.maxRate > ceiling) {
     return refuse(
       `A top rate of ${v.maxRate}/s is above what ${v.connections} connection(s) carry in ` +
-        `this build: ${MAX_RATE}/s each, so ${ceiling}/s.`
+        `this build: ${MAX_RATE_PER_CONNECTION}/s each, so ${ceiling}/s.`
     );
   }
   if (v.stepSeconds < 1) {

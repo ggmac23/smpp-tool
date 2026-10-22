@@ -6,10 +6,13 @@ qx.Class.define("smppclient.Widgets", {
   type: "static",
 
   statics: {
-    /** Blue for "open or close the connection". */
-    ACCENT_BIND: "#1f6fd0",
-    /** Green for "put this on the wire". */
-    ACCENT_SEND: "#1e8e3e",
+    /**
+     * The one accent a primary button wears. Bind and Send used to be two
+     * colours, which made them look like two kinds of thing: they are both
+     * "the action this panel is for", and reading them as a pair is more
+     * use than telling them apart.
+     */
+    ACCENT: "#1f6fd0",
 
     /** A bold, small-caps section heading. */
     heading(text) {
@@ -144,17 +147,17 @@ qx.Class.define("smppclient.Widgets", {
 
     /**
      * A button for the one action a panel is really for. The accent is set
-     * explicitly rather than taken from the theme: these two buttons are
-     * meant to be the ones your eye lands on, which is a decision about this
-     * panel and not about the palette.
+     * explicitly rather than taken from the theme: this is the button your
+     * eye should land on, which is a decision about the panel and not about
+     * the palette.
      */
-    primaryButton(label, colour) {
+    primaryButton(label) {
       const b = new qx.ui.form.Button(label);
       // The theme's button decorator paints over a background colour, which
       // left white text on a pale box. Dropping the decorator lets the accent
       // through.
       b.setDecorator(null);
-      b.setBackgroundColor(colour || smppclient.Widgets.ACCENT_SEND);
+      b.setBackgroundColor(smppclient.Widgets.ACCENT);
       b.setTextColor("#ffffff");
       b.setFont("bold");
       b.setPadding(7, 18);

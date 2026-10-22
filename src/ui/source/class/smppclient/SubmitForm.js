@@ -180,7 +180,7 @@ qx.Class.define("smppclient.SubmitForm", {
 
     __buildActions() {
       const W = smppclient.Widgets;
-      const send = W.primaryButton("Send submit_sm", W.ACCENT_SEND);
+      const send = W.primaryButton("Send submit_sm");
       send.addListener("execute", () => this.send());
 
       // Right-aligned and alone, so the one irreversible action on the panel

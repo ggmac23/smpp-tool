@@ -74,7 +74,7 @@ qx.Class.define("smppclient.MessageOpsForm", {
     f.text.setHeight(80);
     root.add(f.text);
 
-    const send = W.primaryButton("Send", W.ACCENT_SEND);
+    const send = W.primaryButton("Send");
     send.addListener("execute", () => this.send());
     root.add(W.buttons([send]));
 

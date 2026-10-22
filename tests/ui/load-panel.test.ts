@@ -92,13 +92,13 @@ describe("load-test limits", () => {
 
   it("refuses a rate above what the connections can carry, and says so", () => {
     // The ceiling is per connection, so four connections carry four times it.
-    const check = checkLoadLimits({ ...FORM, connections: 1, ratePerSec: 501 });
+    const check = checkLoadLimits({ ...FORM, connections: 1, ratePerSec: 5001 });
     expect(check.ok).toBe(false);
-    expect(check.reason).toMatch(/500/);
+    expect(check.reason).toMatch(/5000/);
   });
 
   it("allows the rate the connections together can carry", () => {
-    expect(checkLoadLimits({ ...FORM, connections: 4, ratePerSec: 2000 }).ok).toBe(true);
+    expect(checkLoadLimits({ ...FORM, connections: 4, ratePerSec: 20000 }).ok).toBe(true);
   });
 
   it("checks the ramp's top rate, not its starting one", () => {
@@ -107,7 +107,7 @@ describe("load-test limits", () => {
       modeLabel: "Ramp until it breaks",
       connections: 1,
       startRate: 10,
-      maxRate: 900,
+      maxRate: 9000,
     });
     expect(check.ok).toBe(false);
   });
