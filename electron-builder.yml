@@ -1,0 +1,37 @@
+appId: com.smppclient.app
+productName: SMPP Client
+copyright: SMPP Client
+
+directories:
+  output: release
+  buildResources: build
+
+# The compiled main process, the compiled renderer bundle, and the manifest.
+# Nothing else: no sources, no tests, and in particular none of the test-only
+# TLS keys under tests/fixtures/tls.
+files:
+  - dist/**
+  - compiled/build/**
+  - package.json
+  - "!**/*.map"
+  - "!tests/**"
+  - "!src/**"
+  - "!docs/**"
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  # Unsigned on purpose: this is the user's own tool, not something distributed.
+  # A signing identity and notarization would need credentials nobody has set up.
+  identity: null
+
+win:
+  target:
+    - nsis
+
+linux:
+  category: Development
+  target:
+    - AppImage
