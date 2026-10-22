@@ -32,6 +32,10 @@ qx.Class.define("smppclient.Application", {
       this.__panels.multi = attach("submit_multi", new smppclient.MultiForm());
       this.__panels.burst = attach("burst", new smppclient.BurstPanel(this.__submitForm));
       this.__panels.hex = attach("hex", new smppclient.HexComposer());
+      this.__panels.load = attach(
+        "load test",
+        new smppclient.LoadPanel(shell.getConnectionPanel(), this.__submitForm)
+      );
 
       this.__trace = new smppclient.TracePanel();
       this.__trace.addListener("notice", e => shell.showNotice(e.getData()));

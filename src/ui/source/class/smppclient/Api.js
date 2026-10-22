@@ -8,8 +8,10 @@
  * Arguments are named, not positional, because that is how Tauri's `invoke`
  * passes them: `call("trace", { from: 0, limit: 200 })`.
  *
- * @ignore(__TAURI__)
- * @ignore(window.__TAURI__)
+ * The global is read with a string key on purpose. qooxdoo's build target
+ * rewrites any identifier beginning with a double underscore into a private
+ * member name, so `window.__TAURI__` compiles into `window.__P_180_1` and the
+ * bridge is never found. A string key cannot be rewritten.
  */
 qx.Class.define("smppclient.Api", {
   extend: qx.core.Object,
@@ -35,7 +37,7 @@ qx.Class.define("smppclient.Api", {
       if (this.__bridge) {
         return this.__bridge;
       }
-      const tauri = typeof window !== "undefined" ? window.__TAURI__ : null;
+      const tauri = typeof window !== "undefined" ? window["__TAURI__"] : null;
       if (!tauri || !tauri.core || !tauri.event) {
         return null;
       }

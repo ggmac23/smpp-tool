@@ -18,4 +18,5 @@ export * from "./hexdump";
 export * from "./flow";
 export * from "./themes";
 export * from "./stats";
+export * from "./load";
 export * from "./hex";

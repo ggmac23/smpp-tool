@@ -39,8 +39,15 @@ pub struct AbandonOn {
     pub latency_p95_ms: u64,
 }
 
+/// `rename_all` names the variants; `rename_all_fields` names their fields.
+/// Without the second one the wire form would be snake_case inside a
+/// camelCase payload, which compiles and then fails at the button.
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(
+    tag = "kind",
+    rename_all = "lowercase",
+    rename_all_fields = "camelCase"
+)]
 pub enum LoadMode {
     Fixed {
         rate_per_sec: u32,
@@ -48,7 +55,8 @@ pub enum LoadMode {
     Ramp {
         start_rate: u32,
         step: u32,
-        #[serde(with = "millis")]
+        /// Milliseconds on the wire: the unit belongs in the name.
+        #[serde(rename = "stepDurationMs", with = "millis")]
         step_duration: Duration,
         max_rate: u32,
         abandon_on: AbandonOn,
@@ -822,6 +830,45 @@ mod tests {
                 error_share,
                 latency_p95_ms: 60_000,
             },
+        }
+    }
+
+    #[test]
+    fn reads_the_modes_exactly_as_the_renderer_sends_them() {
+        // These two payloads are what `buildLoadMode` produces. Field names
+        // that look right in Rust and wrong on the wire are invisible until
+        // someone presses the button, so they are pinned here.
+        let fixed: LoadMode =
+            serde_json::from_value(serde_json::json!({ "kind": "fixed", "ratePerSec": 200 }))
+                .expect("the fixed mode must deserialise");
+        assert!(matches!(fixed, LoadMode::Fixed { rate_per_sec: 200 }));
+
+        let ramp: LoadMode = serde_json::from_value(serde_json::json!({
+            "kind": "ramp",
+            "startRate": 50,
+            "step": 50,
+            "stepDurationMs": 10000,
+            "maxRate": 500,
+            "abandonOn": { "errorShare": 0.02, "latencyP95Ms": 2000 }
+        }))
+        .expect("the ramp mode must deserialise");
+
+        match ramp {
+            LoadMode::Ramp {
+                start_rate,
+                step,
+                step_duration,
+                max_rate,
+                abandon_on,
+            } => {
+                assert_eq!(start_rate, 50);
+                assert_eq!(step, 50);
+                assert_eq!(step_duration, Duration::from_secs(10));
+                assert_eq!(max_rate, 500);
+                assert_eq!(abandon_on.error_share, 0.02);
+                assert_eq!(abandon_on.latency_p95_ms, 2000);
+            }
+            other => panic!("expected a ramp, got {other:?}"),
         }
     }
 

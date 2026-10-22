@@ -477,14 +477,31 @@ mod tests {
             command_id: command_id("submit_multi").unwrap(),
             ..Default::default()
         };
-        req.fields.insert("service_type".into(), serde_json::json!("CMT"));
-        req.fields.insert("data_coding".into(), serde_json::json!(8));
+        req.fields
+            .insert("service_type".into(), serde_json::json!("CMT"));
+        req.fields
+            .insert("data_coding".into(), serde_json::json!(8));
         req.octet_fields
             .insert("short_message".into(), "7265706c616365".into());
-        req.tlvs = vec![WireTlv { tag: 0x0424, hex: "deadbeef".into() }];
+        req.tlvs = vec![WireTlv {
+            tag: 0x0424,
+            hex: "deadbeef".into(),
+        }];
         req.dest_list = vec![
-            WireDest { flag: 1, ton: Some(1), npi: Some(1), addr: Some("393331111111".into()), dl_name: None },
-            WireDest { flag: 2, ton: None, npi: None, addr: None, dl_name: Some("my-list".into()) },
+            WireDest {
+                flag: 1,
+                ton: Some(1),
+                npi: Some(1),
+                addr: Some("393331111111".into()),
+                dl_name: None,
+            },
+            WireDest {
+                flag: 2,
+                ton: None,
+                npi: None,
+                addr: None,
+                dl_name: Some("my-list".into()),
+            },
         ];
 
         let mut input = to_pdu_input(&req);
