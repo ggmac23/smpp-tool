@@ -143,16 +143,16 @@ qx.Class.define("smppclient.Widgets", {
     },
 
     /**
-     * A button for the one action a panel is really for. Themes swap at
-     * runtime, so the colour is set explicitly rather than taken from the
-     * theme, and white-on-saturated reads on every theme we ship.
+     * A button for the one action a panel is really for. The accent is set
+     * explicitly rather than taken from the theme: these two buttons are
+     * meant to be the ones your eye lands on, which is a decision about this
+     * panel and not about the palette.
      */
     primaryButton(label, colour) {
       const b = new qx.ui.form.Button(label);
       // The theme's button decorator paints over a background colour, which
       // left white text on a pale box. Dropping the decorator lets the accent
-      // through, and the colour is set here rather than taken from the theme
-      // because the theme can be swapped at runtime.
+      // through.
       b.setDecorator(null);
       b.setBackgroundColor(colour || smppclient.Widgets.ACCENT_SEND);
       b.setTextColor("#ffffff");

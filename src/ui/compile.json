@@ -25,16 +25,7 @@
       "class": "smppclient.Application",
       "theme": "smppclient.theme.Theme",
       "name": "smppclient",
-      "bootPath": "source/boot",
-      "include": [
-        "qx.theme.Classic",
-        "qx.theme.Indigo",
-        "qx.theme.IndigoDark",
-        "qx.theme.Modern",
-        "qx.theme.Simple",
-        "qx.theme.TangibleDark",
-        "qx.theme.TangibleLight"
-      ]
+      "bootPath": "source/boot"
     }
   ]
 }
