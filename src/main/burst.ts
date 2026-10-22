@@ -78,6 +78,8 @@ function percentile(sorted: number[], p: number): number {
 export class BurstRunner extends EventEmitter {
   private readonly _rows: BurstRow[] = [];
   private readonly rowById = new Map<string, BurstRow>();
+  /** When each row's first PDU went out, so DLR latency is per message. */
+  private readonly sentAtByRow = new Map<string, number>();
   private readonly latencies: number[] = [];
   private readonly errors: Record<string, number> = {};
   private correlator: DlrCorrelator;
@@ -96,6 +98,8 @@ export class BurstRunner extends EventEmitter {
   private _messages = 0;
   private _dlrReceived = 0;
   private _rate = 0;
+  /** Problems found while resolving recipients. Reported, never acted on. */
+  private warnings: string[] = [];
   /** Parts of each row already answered, so a row is accepted only when all are. */
   private readonly partsDone = new Map<string, number>();
 
@@ -151,7 +155,8 @@ export class BurstRunner extends EventEmitter {
 
     // Resolving first means an over-ceiling count is refused before a single
     // PDU goes out.
-    const { numbers } = resolveRecipients(cfg.recipients);
+    const { numbers, warnings } = resolveRecipients(cfg.recipients);
+    this.warnings = warnings;
 
     this.running = true;
     this.stopping = false;
@@ -161,6 +166,7 @@ export class BurstRunner extends EventEmitter {
     this.finishedAt = 0;
     this.sendingEndedAt = 0;
     this.correlator = new DlrCorrelator(this.correlation);
+    this.sentAtByRow.clear();
 
     const onReceipt = (e: { pdu: Pdu }) => this.onInbound(e.pdu);
     const onState = (e: { state: string }) => {
@@ -196,7 +202,7 @@ export class BurstRunner extends EventEmitter {
         : "complete";
 
     this.emit("progress", { sent: this._submitted, total: numbers.length, stats: this.stats });
-    this.emit("done", { reason, stats: this.stats });
+    this.emit("done", { reason, stats: this.stats, warnings: this.warnings });
   }
 
   /** Pace the submits, `perTick` at a time, and wait for them to settle. */
@@ -205,15 +211,20 @@ export class BurstRunner extends EventEmitter {
     let i = 0;
 
     while (i < numbers.length && !this.stopping) {
-      const perTick = Math.max(1, Math.round((this._rate * TICK_MS) / 1000));
-      const tickStarted = Date.now();
+      // Above one message per tick, send a batch each tick. Below it, send one
+      // message and wait the whole gap — otherwise the floor would be one per
+      // tick, and a request for 5/sec would quietly go out at 50/sec.
+      const perTick = (this._rate * TICK_MS) / 1000;
+      const toSend = perTick >= 1 ? Math.round(perTick) : 1;
+      const waitMs = perTick >= 1 ? TICK_MS : Math.round(1000 / this._rate);
 
-      for (let n = 0; n < perTick && i < numbers.length && !this.stopping; n++, i++) {
+      const tickStarted = Date.now();
+      for (let n = 0; n < toSend && i < numbers.length && !this.stopping; n++, i++) {
         inflight.push(this.sendOne(cfg, numbers[i], i));
       }
 
       const spent = Date.now() - tickStarted;
-      if (spent < TICK_MS) await new Promise((r) => setTimeout(r, TICK_MS - spent));
+      if (spent < waitMs) await new Promise((r) => setTimeout(r, waitMs - spent));
     }
 
     await Promise.all(inflight);
@@ -261,6 +272,7 @@ export class BurstRunner extends EventEmitter {
       };
 
       const sentAt = Date.now();
+      if (!this.sentAtByRow.has(row.id)) this.sentAtByRow.set(row.id, sentAt);
       try {
         const resp = await this.session.send(input);
         const latency = Date.now() - sentAt;
@@ -320,7 +332,8 @@ export class BurstRunner extends EventEmitter {
     const row = this.rowById.get(token);
     if (!row) return;
     row.dlrState = receipt.state;
-    row.dlrLatencyMs = Math.max(0, Date.now() - this.startedAt - (row.submitLatencyMs ?? 0));
+    const sentAt = this.sentAtByRow.get(row.id) ?? this.startedAt;
+    row.dlrLatencyMs = Math.max(0, Date.now() - sentAt);
     this._dlrReceived++;
     this.emit("row", row);
   }

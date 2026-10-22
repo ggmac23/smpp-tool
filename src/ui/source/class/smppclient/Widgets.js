@@ -6,6 +6,11 @@ qx.Class.define("smppclient.Widgets", {
   type: "static",
 
   statics: {
+    /** Blue for "open or close the connection". */
+    ACCENT_BIND: "#1f6fd0",
+    /** Green for "put this on the wire". */
+    ACCENT_SEND: "#1e8e3e",
+
     /** A bold, small-caps section heading. */
     heading(text) {
       const label = new qx.ui.basic.Label(text);
@@ -135,6 +140,27 @@ qx.Class.define("smppclient.Widgets", {
       if (match.length > 0) {
         box.setSelection([match[0]]);
       }
+    },
+
+    /**
+     * A button for the one action a panel is really for. Themes swap at
+     * runtime, so the colour is set explicitly rather than taken from the
+     * theme, and white-on-saturated reads on every theme we ship.
+     */
+    primaryButton(label, colour) {
+      const b = new qx.ui.form.Button(label);
+      // The theme's button decorator paints over a background colour, which
+      // left white text on a pale box. Dropping the decorator lets the accent
+      // through, and the colour is set here rather than taken from the theme
+      // because the theme can be swapped at runtime.
+      b.setDecorator(null);
+      b.setBackgroundColor(colour || smppclient.Widgets.ACCENT_SEND);
+      b.setTextColor("#ffffff");
+      b.setFont("bold");
+      b.setPadding(7, 18);
+      b.setMinWidth(130);
+      b.setCenter(true);
+      return b;
     },
 
     /** A row of buttons. */

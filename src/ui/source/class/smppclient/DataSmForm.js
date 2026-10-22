@@ -43,7 +43,7 @@ qx.Class.define("smppclient.DataSmForm", {
     f.text.setHeight(100);
     root.add(f.text);
 
-    const send = new qx.ui.form.Button("Send data_sm");
+    const send = W.primaryButton("Send data_sm", W.ACCENT_SEND);
     send.addListener("execute", () => this.send());
     root.add(W.buttons([send]));
 

@@ -11,7 +11,7 @@ import {
   relativeTime,
   absoluteTime,
 } from "../../src/shared/ui/fields";
-import { buildSubmitInput, SubmitFormValues } from "../../src/shared/ui/submit";
+import { buildSubmitInput, SubmitFormValues, SAMPLE_PRESETS } from "../../src/shared/ui/submit";
 import { SAMPLES } from "../../src/smpp/text";
 import { DataCoding, ESM_UDHI_BIT, CommandId } from "../../src/smpp/constants";
 
@@ -39,6 +39,41 @@ const FORM: SubmitFormValues = {
 };
 
 const build = (over: Partial<SubmitFormValues> = {}) => buildSubmitInput({ ...FORM, ...over });
+
+describe("sample presets", () => {
+  it("offers the reference tool's four samples", () => {
+    expect(SAMPLE_PRESETS.map((p) => p.key)).toEqual(["gsm1", "ucs2_1", "gsm3", "ucs2_3"]);
+  });
+
+  it("sets a multi-part preset to a segmenting mode, or its body cannot be sent", () => {
+    for (const preset of SAMPLE_PRESETS.filter((p) => p.parts > 1)) {
+      expect(preset.segmentationLabel, preset.key).not.toMatch(/^None/);
+    }
+  });
+
+  it("leaves a single-part preset on one PDU", () => {
+    for (const preset of SAMPLE_PRESETS.filter((p) => p.parts === 1)) {
+      expect(preset.segmentationLabel, preset.key).toMatch(/^None/);
+    }
+  });
+
+  it("pairs each preset with the coding its text needs", () => {
+    expect(SAMPLE_PRESETS.find((p) => p.key === "ucs2_3")!.dataCodingLabel).toMatch(/UCS2/);
+    expect(SAMPLE_PRESETS.find((p) => p.key === "gsm3")!.dataCodingLabel).toMatch(/GSM/);
+  });
+
+  it("builds every preset without a length warning", () => {
+    for (const preset of SAMPLE_PRESETS) {
+      const built = buildSubmitInput({
+        ...FORM,
+        text: SAMPLES[preset.key],
+        dataCoding: preset.dataCoding,
+        segmentation: preset.segmentation,
+      });
+      expect(built.warnings.join(" "), preset.key).not.toMatch(/sm_length/i);
+    }
+  });
+});
 
 describe("field option lists", () => {
   it("offers registered_delivery 0-3 and 16-19", () => {
@@ -224,6 +259,34 @@ describe("buildSubmitInput", () => {
     const built = build({ text: "hi 🙂" });
     expect(built.measurement.unmappable).toEqual(["🙂"]);
     expect(built.warnings.join(" ")).toMatch(/🙂/);
+  });
+
+  it("warns when the body will not fit short_message in one PDU", () => {
+    // sm_length is a single octet: a 300-byte body in one PDU writes 44.
+    const built = build({ text: "a".repeat(300), segmentation: "none" });
+    expect(built.warnings.join(" ")).toMatch(/sm_length|254|one PDU/i);
+    expect(built.requests).toHaveLength(1);
+  });
+
+  it("does not warn about length when the body travels in message_payload", () => {
+    const built = build({
+      text: "a".repeat(300),
+      segmentation: "none",
+      placement: "message_payload",
+    });
+    expect(built.warnings.join(" ")).not.toMatch(/sm_length/i);
+  });
+
+  it("does not warn about length when the body is segmented", () => {
+    expect(build({ text: "a".repeat(300), segmentation: "udh" }).warnings.join(" ")).not.toMatch(
+      /sm_length/i
+    );
+  });
+
+  it("counts one part when a hand-written UDH turns concatenation off", () => {
+    const built = build({ text: "a".repeat(400), segmentation: "udh", udhHex: "03 20 01 05" });
+    expect(built.requests).toHaveLength(1);
+    expect(built.measurement.parts).toBe(1);
   });
 
   it("writes the relative validity period the label asks for", () => {

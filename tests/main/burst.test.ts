@@ -305,6 +305,84 @@ describe("BurstRunner", () => {
     expect(runner.stats.dlrUnmatched).toBe(0);
   });
 
+  it("honours a rate slower than one message per pacing tick", async () => {
+    smsc = new FakeSmsc();
+    const s = await bound();
+    const runner = new BurstRunner(s, DEFAULT_CORRELATION);
+
+    const started = Date.now();
+    await runner.start(
+      config({ recipients: { kind: "repeat", number: "3933", count: 5 }, ratePerSec: 10, awaitDlrMs: 0 })
+    );
+    const elapsed = Date.now() - started;
+
+    // Five messages at 10/sec is about 400ms of sending. A pacer that cannot
+    // go below one per 20ms tick would finish in ~100ms and report ~50/sec.
+    expect(elapsed).toBeGreaterThan(250);
+    expect(runner.stats.achievedRatePerSec).toBeLessThan(20);
+  });
+
+  it("measures DLR latency from the message's own submit, not from the burst start", async () => {
+    smsc = new FakeSmsc();
+    smsc.on("submit_sm", (p) => {
+      const id = `ID${p.sequenceNumber}`;
+      setTimeout(
+        () =>
+          smsc?.send({
+            commandId: CommandId.deliver_sm,
+            sequenceNumber: 9000 + p.sequenceNumber,
+            fields: {
+              esm_class: 4,
+              short_message: Buffer.from(`id:${id} stat:DELIVRD err:000`, "latin1"),
+            },
+          }),
+        30
+      );
+      return {
+        commandId: CommandId.submit_sm_resp,
+        sequenceNumber: p.sequenceNumber,
+        fields: { message_id: id },
+      };
+    });
+    const s = await bound();
+    const runner = new BurstRunner(s, DEFAULT_CORRELATION);
+
+    // A slow burst, so later rows are submitted long after the start.
+    await runner.start(
+      config({
+        recipients: { kind: "repeat", number: "3933", count: 6 },
+        ratePerSec: 5,
+        awaitDlrMs: 2000,
+      })
+    );
+
+    const latencies = runner.rows.map((r) => r.dlrLatencyMs ?? -1);
+    expect(latencies.every((l) => l >= 0)).toBe(true);
+    // Every receipt came back about 30ms after its own submit. If the figure
+    // were measured from the burst start, the last rows would read ~1000ms.
+    expect(Math.max(...latencies)).toBeLessThan(500);
+  });
+
+  it("reports the recipient warnings rather than swallowing them", async () => {
+    smsc = new FakeSmsc();
+    const s = await bound();
+    const runner = new BurstRunner(s, DEFAULT_CORRELATION);
+
+    let done: { warnings?: string[] } = {};
+    runner.on("done", (e: { warnings?: string[] }) => (done = e));
+
+    await runner.start(
+      config({
+        recipients: { kind: "csv", text: "msisdn\n393331111111\nnot a number!\n" },
+        ratePerSec: 50,
+        awaitDlrMs: 0,
+      })
+    );
+
+    expect(done.warnings ?? []).toHaveLength(1);
+    expect((done.warnings ?? []).join(" ")).toMatch(/row 3/i);
+  });
+
   it("counts an unmatched receipt in dlrUnmatched without touching a row", async () => {
     smsc = new FakeSmsc();
     smsc.on("submit_sm", (p) => {

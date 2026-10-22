@@ -60,7 +60,13 @@ export class Session extends EventEmitter {
   private nextSequence = 1;
   private readonly inflight = new Map<number, Pending>();
   private windowUsed = 0;
-  private readonly waiters: (() => void)[] = [];
+  private closing = false;
+  /**
+   * Sends parked waiting for a window slot. They hold a reject handle as well
+   * as a resolve one: when the connection goes, a parked send must fail like
+   * an in-flight one, or it never settles at all and its caller waits forever.
+   */
+  private readonly waiters: { grant: () => void; fail: (err: Error) => void }[] = [];
 
   constructor(
     private readonly transport: Transport,
@@ -178,18 +184,24 @@ export class Session extends EventEmitter {
       this.windowUsed++;
       return Promise.resolve();
     }
-    return new Promise<void>((resolve) => {
-      this.waiters.push(() => {
-        this.windowUsed++;
-        resolve();
+    return new Promise<void>((resolve, reject) => {
+      this.waiters.push({
+        grant: () => {
+          this.windowUsed++;
+          resolve();
+        },
+        fail: reject,
       });
     });
   }
 
   private releaseWindowSlot(): void {
     this.windowUsed = Math.max(0, this.windowUsed - 1);
+    // Once the connection has gone there is no slot worth granting: a waiter
+    // woken here would write to a dead socket and fail with the wrong reason.
+    if (this.closing) return;
     const next = this.waiters.shift();
-    if (next) next();
+    if (next) next.grant();
   }
 
   private request(input: Omit<PduInput, "sequenceNumber">, windowed: boolean): Promise<Pdu> {
@@ -299,10 +311,18 @@ export class Session extends EventEmitter {
 
   private onClose(err?: Error): void {
     const reason = err ? `connection closed: ${err.message}` : "connection closed";
+    // Mark the session closing before settling anything, so releasing a slot
+    // cannot wake a parked send onto a socket that has already gone.
+    this.closing = true;
+
+    // Fail whatever is queued for a slot, rather than dropping the callbacks
+    // and leaving those sends unsettled for good.
+    const parked = this.waiters.splice(0, this.waiters.length);
+    for (const waiter of parked) waiter.fail(new Error(reason));
+
     for (const sequenceNumber of [...this.inflight.keys()]) {
       this.settle(sequenceNumber, (p) => p.reject(new Error(reason)));
     }
-    this.waiters.length = 0;
     this.windowUsed = 0;
     if (this._state !== "closed") this.setState("closed", null);
   }

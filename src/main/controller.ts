@@ -173,11 +173,19 @@ export class Controller implements Commands {
     await this.need().unbind();
   }
 
-  async status(): Promise<{ state: BindState; mode: BindMode | null; dropped: number }> {
+  async status(): Promise<{
+    state: BindState;
+    mode: BindMode | null;
+    dropped: number;
+    pending: { buffered: number; declared: number | null };
+  }> {
     return {
       state: this.session?.state ?? "unbound",
       mode: this.session?.mode ?? null,
       dropped: this.trace_.dropped,
+      // Bytes held waiting for a PDU that declared more than it sent: without
+      // this the stall is silent.
+      pending: this.transport?.pending ?? { buffered: 0, declared: null },
     };
   }
 
@@ -252,7 +260,7 @@ export class Controller implements Commands {
 
   async clearTrace(): Promise<void> {
     this.trace_.clear();
-    this.deps.push.pushEvent("counters", this.trace_.counters);
+    this.deps.push.pushCounters(this.trace_.counters);
   }
 
   async setTraceCap(n: number): Promise<void> {
@@ -397,6 +405,6 @@ export class Controller implements Commands {
     this.trace_.add(entry);
     this.sink?.write(entry);
     this.deps.push.pushPdu(toWirePdu(entry));
-    this.deps.push.pushEvent("counters", this.trace_.counters);
+    this.deps.push.pushCounters(this.trace_.counters);
   }
 }

@@ -103,6 +103,43 @@ describe("Transport over plain TCP", () => {
     expect(decodePdu(seen.pdus[0]).sequenceNumber).toBe(7);
   });
 
+  it("delivers the good PDUs that shared a read with a malformed one", async () => {
+    smsc = new FakeSmsc();
+    const port = await smsc.listen();
+    transport = new Transport(opts(port));
+    const seen = watch(transport);
+
+    await transport.connect();
+    await smsc.waitForConnection();
+
+    // Two well-formed PDUs followed by one with an impossible command_length,
+    // all in a single write so they arrive together.
+    const good1 = encodePdu({ commandId: CommandId.deliver_sm, sequenceNumber: 11, fields: { esm_class: 4 } });
+    const good2 = encodePdu({ commandId: CommandId.deliver_sm, sequenceNumber: 12, fields: { esm_class: 4 } });
+    const bad = Buffer.alloc(16);
+    bad.writeUInt32BE(4, 0);
+    smsc.sendRaw(Buffer.concat([good1, good2, bad]));
+
+    await until(() => seen.errors.length === 1);
+
+    expect(seen.pdus.map((r) => decodePdu(r).sequenceNumber)).toEqual([11, 12]);
+    expect(transport.connected).toBe(true);
+  });
+
+  it("reports what the framer is still holding", async () => {
+    smsc = new FakeSmsc();
+    const port = await smsc.listen();
+    transport = new Transport(opts(port));
+    await transport.connect();
+    await smsc.waitForConnection();
+
+    const whole = encodePdu({ commandId: CommandId.deliver_sm, sequenceNumber: 5, fields: { esm_class: 4 } });
+    smsc.sendRaw(whole.subarray(0, 20));
+    await until(() => transport!.pending.buffered === 20);
+
+    expect(transport.pending).toEqual({ buffered: 20, declared: whole.length });
+  });
+
   it("emits close and does not reconnect when the server goes away", async () => {
     smsc = new FakeSmsc();
     const port = await smsc.listen();

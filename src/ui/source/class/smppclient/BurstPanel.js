@@ -106,7 +106,7 @@ qx.Class.define("smppclient.BurstPanel", {
     __buildActions() {
       const W = smppclient.Widgets;
 
-      this.__startButton = new qx.ui.form.Button("Start burst");
+      this.__startButton = W.primaryButton("Start burst", W.ACCENT_SEND);
       this.__startButton.addListener("execute", () => this.start());
 
       const stop = new qx.ui.form.Button("Stop");
@@ -286,6 +286,7 @@ qx.Class.define("smppclient.BurstPanel", {
 
     __onDone(d) {
       this.__showStats(d.stats);
+      (d.warnings || []).forEach(w => this.fireDataEvent("notice", w));
       this.fireDataEvent("notice", "Burst " + d.reason + " — " + d.stats.submitted + " submitted");
     },
 

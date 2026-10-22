@@ -26,13 +26,15 @@ export class PduFramer {
       if (commandLength < PDU_HEADER_LENGTH) {
         throw new PduDecodeError(
           `command_length ${commandLength} is below the ${PDU_HEADER_LENGTH}-byte header`,
-          Buffer.from(this.buf.subarray(0, Math.min(this.buf.length, PDU_HEADER_LENGTH)))
+          Buffer.from(this.buf),
+          out
         );
       }
       if (commandLength > MAX_PDU_LENGTH) {
         throw new PduDecodeError(
           `command_length ${commandLength} exceeds the ${MAX_PDU_LENGTH}-byte maximum`,
-          Buffer.from(this.buf.subarray(0, Math.min(this.buf.length, PDU_HEADER_LENGTH)))
+          Buffer.from(this.buf),
+          out
         );
       }
 
@@ -47,6 +49,19 @@ export class PduFramer {
   /** Bytes held back waiting for the rest of their PDU. */
   get buffered(): number {
     return this.buf.length;
+  }
+
+  /**
+   * What is still held and what the PDU it belongs to claims it will be.
+   * `declared` is null while the 16-byte header is itself incomplete. The UI
+   * shows this so an SMSC that announces more bytes than it sends is visible
+   * rather than a silent stall.
+   */
+  get pending(): { buffered: number; declared: number | null } {
+    return {
+      buffered: this.buf.length,
+      declared: this.buf.length >= PDU_HEADER_LENGTH ? this.buf.readUInt32BE(0) : null,
+    };
   }
 
   reset(): void {

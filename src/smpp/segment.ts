@@ -8,8 +8,11 @@ import {
   septetsFor,
   splitSeptets,
   splitByCodeUnits,
+  GSM7_SINGLE,
   GSM7_CONCAT,
+  UCS2_SINGLE_UNITS,
   UCS2_CONCAT_UNITS,
+  OCTET_SINGLE,
   OCTET_CONCAT,
 } from "./text";
 
@@ -53,7 +56,10 @@ function chunk(text: string, dataCoding: number, packing: Gsm7Packing): string[]
     // Split on septets so an escape pair is never cut in half, then map the
     // runs back to text. 153 septets is 134 packed octets or 153 unpacked ones.
     const septets = septetsFor(text);
-    if (septets.length <= GSM7_CONCAT) return [text];
+    // A body that fits one segment is one segment: the concatenation limit
+    // only applies once the message actually has to be split. The live
+    // counter decides the same way, and the two must agree.
+    if (septets.length <= GSM7_SINGLE) return [text];
 
     const runs = splitSeptets(septets, GSM7_CONCAT);
     const chars = Array.from(text);
@@ -76,11 +82,11 @@ function chunk(text: string, dataCoding: number, packing: Gsm7Packing): string[]
 
   if (dataCoding === DataCoding.UCS2) {
     const units = text.length;
-    return units <= UCS2_CONCAT_UNITS ? [text] : splitByCodeUnits(text, UCS2_CONCAT_UNITS);
+    return units <= UCS2_SINGLE_UNITS ? [text] : splitByCodeUnits(text, UCS2_CONCAT_UNITS);
   }
 
   const bytes = encodeText(text, dataCoding, packing).bytes.length;
-  if (bytes <= OCTET_CONCAT) return [text];
+  if (bytes <= OCTET_SINGLE) return [text];
   const chars = Array.from(text);
   const out: string[] = [];
   for (let i = 0; i < chars.length; i += OCTET_CONCAT) {

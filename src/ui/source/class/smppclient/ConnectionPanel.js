@@ -170,7 +170,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
     __buildActions() {
       const W = smppclient.Widgets;
 
-      const bind = new qx.ui.form.Button("Bind");
+      const bind = W.primaryButton("Bind", W.ACCENT_BIND);
       bind.addListener("execute", () => this.bind());
 
       const unbind = new qx.ui.form.Button("Unbind");
@@ -442,16 +442,15 @@ qx.Class.define("smppclient.ConnectionPanel", {
       }
       // The column is narrow, so the numbers are right-aligned into a fixed
       // width instead of being pushed off the edge by a long command name.
-      const width = Math.min(26, names.reduce((w, n) => Math.max(w, n.length), 0));
+      // The column is narrow, so "sent / received" is one compact cell rather
+      // than two padded ones that run off the edge.
+      const width = names.reduce((w, n) => Math.max(w, n.length), 0);
       const pad = (text, n) =>
         text.length >= n ? text : text + new Array(n - text.length + 1).join(" ");
-      const padLeft = (text, n) =>
-        text.length >= n ? text : new Array(n - text.length + 1).join(" ") + text;
 
-      const lines = [pad("command", width) + padLeft("sent", 7) + padLeft("recv", 7)];
-      names.forEach(name => {
+      const lines = names.map(name => {
         const c = counters[name];
-        lines.push(pad(name, width) + padLeft(String(c.sent), 7) + padLeft(String(c.received), 7));
+        return pad(name, width) + "  " + c.sent + " / " + c.received;
       });
       this.__counters.setValue(lines.join("\n"));
     }

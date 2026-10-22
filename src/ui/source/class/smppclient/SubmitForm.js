@@ -154,18 +154,15 @@ qx.Class.define("smppclient.SubmitForm", {
 
     __buildSamples() {
       const W = smppclient.Widgets;
-      const samples = [
-        { label: "GSM 1 part", key: "gsm1", coding: "0 — GSM 03.38 default" },
-        { label: "UCS2 1 part", key: "ucs2_1", coding: "8 — UCS2" },
-        { label: "GSM 3 parts", key: "gsm3", coding: "0 — GSM 03.38 default" },
-        { label: "UCS2 3 parts", key: "ucs2_3", coding: "8 — UCS2" }
-      ];
-
-      const buttons = samples.map(sample => {
-        const b = new qx.ui.form.Button(sample.label);
+      // Each preset carries the coding AND the segmentation its body needs: a
+      // three-part sample left on "one PDU" would overflow sm_length and come
+      // back as an SMSC error with no clue why.
+      const buttons = SmppForms.SAMPLE_PRESETS.map(preset => {
+        const b = new qx.ui.form.Button(preset.label);
         b.addListener("execute", () => {
-          this.__fields.text.setValue(SmppForms.SAMPLES[sample.key]);
-          W.selectByLabel(this.__fields.dataCoding, sample.coding);
+          this.__fields.text.setValue(SmppForms.SAMPLES[preset.key]);
+          W.selectByLabel(this.__fields.dataCoding, preset.dataCodingLabel);
+          W.selectByLabel(this.__fields.segmentation, preset.segmentationLabel);
           this.__refreshCounter();
         });
         return b;
@@ -182,9 +179,16 @@ qx.Class.define("smppclient.SubmitForm", {
     },
 
     __buildActions() {
-      const send = new qx.ui.form.Button("Send submit_sm");
+      const W = smppclient.Widgets;
+      const send = W.primaryButton("Send submit_sm", W.ACCENT_SEND);
       send.addListener("execute", () => this.send());
-      return smppclient.Widgets.buttons([send]);
+
+      // Right-aligned and alone, so the one irreversible action on the panel
+      // is not another grey button in a row of grey buttons.
+      const box = new qx.ui.container.Composite(new qx.ui.layout.HBox(6));
+      box.add(new qx.ui.core.Spacer(), { flex: 1 });
+      box.add(send);
+      return box;
     },
 
     /* ---------------------------------------------------------------- */

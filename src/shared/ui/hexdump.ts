@@ -72,3 +72,16 @@ export function droppedNotice(dropped: number): string {
 }
 
 export const TRACE_COLUMNS = ["Time", "SeqNo", "Dir", "SMPP PDU", "Status"];
+
+/**
+ * Shown when the framer is holding bytes for a PDU that has not finished
+ * arriving. An SMSC that declares more than it sends otherwise stalls the
+ * trace silently, with no row and no error.
+ */
+export function pendingNotice(pending: { buffered: number; declared: number | null }): string {
+  if (!pending || pending.buffered <= 0) return "";
+  if (pending.declared === null) {
+    return `${pending.buffered} byte(s) held: not yet a complete PDU header.`;
+  }
+  return `${pending.buffered} of ${pending.declared} byte(s) held, waiting for the rest of a PDU.`;
+}

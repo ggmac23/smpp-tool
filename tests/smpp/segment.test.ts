@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { segment } from "../../src/smpp/segment";
-import { decodeText } from "../../src/smpp/text";
+import { decodeText, measure } from "../../src/smpp/text";
 import { DataCoding, ESM_UDHI_BIT, EsmClass } from "../../src/smpp/constants";
 
 const MESSAGE_PAYLOAD = 0x0424;
@@ -125,6 +125,43 @@ describe("segment", () => {
   it("reports unmappable characters on each segment", () => {
     const segs = gsm("hi 🙂", { mode: "none" });
     expect(segs[0].unmappable).toEqual(["🙂"]);
+  });
+
+  it("sends a full single segment as one PDU, not two", () => {
+    // 160 septets is the textbook single SMS. Splitting it would fragment the
+    // most common message the tool will ever send.
+    expect(gsm("a".repeat(160))).toHaveLength(1);
+    expect(gsm("a".repeat(161))).toHaveLength(2);
+
+    expect(gsm("a".repeat(70), { dataCoding: DataCoding.UCS2 })).toHaveLength(1);
+    expect(gsm("a".repeat(71), { dataCoding: DataCoding.UCS2 })).toHaveLength(2);
+
+    expect(gsm("a".repeat(140), { dataCoding: DataCoding.OCTET_UNSPECIFIED_4 })).toHaveLength(1);
+    expect(gsm("a".repeat(141), { dataCoding: DataCoding.OCTET_UNSPECIFIED_4 })).toHaveLength(2);
+  });
+
+  it("agrees with the live counter about how many parts there will be", () => {
+    const cases: [string, number][] = [
+      ["a".repeat(153), DataCoding.GSM_DEFAULT],
+      ["a".repeat(157), DataCoding.GSM_DEFAULT],
+      ["a".repeat(160), DataCoding.GSM_DEFAULT],
+      ["a".repeat(161), DataCoding.GSM_DEFAULT],
+      ["a".repeat(320), DataCoding.GSM_DEFAULT],
+      ["a".repeat(67), DataCoding.UCS2],
+      ["a".repeat(69), DataCoding.UCS2],
+      ["a".repeat(70), DataCoding.UCS2],
+      ["a".repeat(71), DataCoding.UCS2],
+      ["a".repeat(134), DataCoding.OCTET_UNSPECIFIED_4],
+      ["a".repeat(138), DataCoding.OCTET_UNSPECIFIED_4],
+      ["a".repeat(140), DataCoding.OCTET_UNSPECIFIED_4],
+      ["a".repeat(141), DataCoding.OCTET_UNSPECIFIED_4],
+    ];
+
+    for (const [text, dataCoding] of cases) {
+      const counted = measure(text, dataCoding, "udh").parts;
+      const actual = gsm(text, { dataCoding }).length;
+      expect(actual, `${text.length} chars at data_coding ${dataCoding}`).toBe(counted);
+    }
   });
 
   it("segments packed GSM7 into 134-octet bodies", () => {

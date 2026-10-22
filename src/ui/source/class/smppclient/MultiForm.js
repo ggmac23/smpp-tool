@@ -72,7 +72,7 @@ qx.Class.define("smppclient.MultiForm", {
     f.destinations.addListener("input", () => this.__refreshCount());
     f.distributionLists.addListener("input", () => this.__refreshCount());
 
-    const send = new qx.ui.form.Button("Send submit_multi");
+    const send = W.primaryButton("Send submit_multi", W.ACCENT_SEND);
     send.addListener("execute", () => this.send());
     root.add(W.buttons([send]));
 

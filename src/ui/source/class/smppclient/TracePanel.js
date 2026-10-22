@@ -116,7 +116,12 @@ qx.Class.define("smppclient.TracePanel", {
       widths.setWidth(3, "1*", 260);
       widths.setWidth(4, 120);
 
-      this.__table.addListener("changeSelection", () => this.__onSelect());
+      // The selection model is what announces a change — a click on the table
+      // raises nothing on the table itself, so listening there left the hex
+      // and field panes empty for every mouse selection.
+      this.__table
+        .getSelectionModel()
+        .addListener("changeSelection", () => this.__onSelect());
       return this.__table;
     },
 
@@ -201,14 +206,9 @@ qx.Class.define("smppclient.TracePanel", {
         .catch(e => this.fireDataEvent("notice", "Export failed: " + e.message));
     },
 
-    /**
-     * Select a row by its index and show its detail. The detail refresh is
-     * explicit because a programmatic selection does not raise the table's
-     * changeSelection event; a user's click does, and goes the same way.
-     */
+    /** Select a row by its index and show its detail. */
     selectRow(index) {
       this.__table.getSelectionModel().setSelectionInterval(index, index);
-      this.__onSelect();
     },
 
     /** Whether the panel holds the PDU for a trace row ordinal. */
@@ -307,7 +307,11 @@ qx.Class.define("smppclient.TracePanel", {
       this.__api
         .call("status")
         .then(status => {
-          const notice = SmppForms.droppedNotice(status ? status.dropped : 0);
+          const parts = [
+            SmppForms.droppedNotice(status ? status.dropped : 0),
+            SmppForms.pendingNotice(status ? status.pending : null)
+          ].filter(Boolean);
+          const notice = parts.join("  ");
           this.__dropped.setValue(notice);
           this.__dropped.setVisibility(notice ? "visible" : "excluded");
         })

@@ -67,6 +67,45 @@ describe("PduFramer", () => {
     expect(() => framer.push(buf)).toThrow(PduDecodeError);
   });
 
+  it("keeps the PDUs it already framed when a later one is malformed", () => {
+    const a = pdu(CommandId.enquire_link, 0, 1);
+    const b = pdu(CommandId.enquire_link, 0, 2);
+    const bad = pduWithLength(4, CommandId.enquire_link, 0, 3);
+
+    try {
+      framer.push(Buffer.concat([a, b, bad]));
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(PduDecodeError);
+      // The two good PDUs arrived before the bad one and must not be lost.
+      expect((e as PduDecodeError).framed).toEqual([a, b]);
+    }
+  });
+
+  it("reports no framed PDUs when the very first one is malformed", () => {
+    try {
+      framer.push(pduWithLength(4, CommandId.enquire_link, 0, 1));
+      expect.unreachable("should have thrown");
+    } catch (e) {
+      expect((e as PduDecodeError).framed).toEqual([]);
+    }
+  });
+
+  it("reports what it is still holding and what that PDU claims", () => {
+    const p = pdu(CommandId.submit_sm, 0, 1, submitSmBody());
+    framer.push(p.subarray(0, 20));
+    expect(framer.pending).toEqual({ buffered: 20, declared: p.length });
+  });
+
+  it("reports nothing pending when its buffer is empty", () => {
+    expect(framer.pending).toEqual({ buffered: 0, declared: null });
+  });
+
+  it("reports a declared length of null while the header is incomplete", () => {
+    framer.push(Buffer.from([0, 0, 0]));
+    expect(framer.pending).toEqual({ buffered: 3, declared: null });
+  });
+
   it("drops its buffer on reset and frames the next PDU cleanly", () => {
     const partial = pdu(CommandId.submit_sm, 0, 1, submitSmBody());
     framer.push(partial.subarray(0, 10));

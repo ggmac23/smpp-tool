@@ -45,6 +45,11 @@ export class Transport extends EventEmitter {
     return this.open;
   }
 
+  /** Bytes held by the framer and the length the pending PDU claims. */
+  get pending(): { buffered: number; declared: number | null } {
+    return this.framer.pending;
+  }
+
   connect(): Promise<void> {
     if (this.socket) return Promise.reject(new Error("transport already used"));
 
@@ -102,11 +107,14 @@ export class Transport extends EventEmitter {
         try {
           raws = this.framer.push(chunk);
         } catch (e) {
-          // One unreadable PDU does not end the session: drop what is buffered
-          // and keep listening, because an SMSC that sent one bad PDU is still
-          // worth watching.
+          const error = e as PduDecodeError;
+          // PDUs the framer had already read out of this same chunk are good
+          // traffic: deliver them before reporting the bad one, or they are
+          // lost with it. Then drop what is buffered and keep listening,
+          // because an SMSC that sent one bad PDU is still worth watching.
+          for (const raw of error.framed ?? []) this.emit("pdu", raw);
           this.framer.reset();
-          this.emit("decode-error", e as PduDecodeError);
+          this.emit("decode-error", error);
           return;
         }
         for (const raw of raws) this.emit("pdu", raw);

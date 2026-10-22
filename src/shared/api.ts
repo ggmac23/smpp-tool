@@ -114,7 +114,13 @@ export interface Commands {
   profileSecrets(id: string): Promise<{ password: string | null; keyPassphrase: string | null }>;
   measure(req: MeasureRequest): Promise<Measurement>;
   pickFile(kind: "csv" | "ca" | "cert" | "key"): Promise<{ path: string; text?: string } | null>;
-  status(): Promise<{ state: BindState; mode: BindMode | null; dropped: number }>;
+  status(): Promise<{
+    state: BindState;
+    mode: BindMode | null;
+    dropped: number;
+    /** Bytes the framer holds, and the length the pending PDU claims. */
+    pending: { buffered: number; declared: number | null };
+  }>;
 }
 
 /**

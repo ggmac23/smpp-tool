@@ -4,10 +4,18 @@ import { Tlv, decodeTlvs } from "./tlv";
 
 export class PduDecodeError extends Error {
   readonly raw: Buffer;
-  constructor(message: string, raw: Buffer) {
+  /**
+   * PDUs the framer had already read out of the same chunk before it hit this
+   * one. They are perfectly good traffic and must not be lost just because a
+   * later PDU in the same read was malformed.
+   */
+  readonly framed: Buffer[];
+
+  constructor(message: string, raw: Buffer, framed: Buffer[] = []) {
     super(message);
     this.name = "PduDecodeError";
     this.raw = raw;
+    this.framed = framed;
   }
 }
 

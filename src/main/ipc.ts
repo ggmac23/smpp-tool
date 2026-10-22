@@ -21,6 +21,8 @@ export interface IpcOptions {
 export interface IpcHandle {
   pushPdu(pdu: WirePdu): void;
   pushBurstRow(row: BurstRow): void;
+  /** The latest counters snapshot. Batched: only the last one is sent. */
+  pushCounters(counters: Events["counters"]): void;
   pushState(payload: Events["state"]): void;
   pushEvent<K extends EventName>(name: K, payload: Events[K]): void;
   /** Send whatever is buffered now. */
@@ -46,6 +48,7 @@ export function registerIpc(
 
   let pdus: WirePdu[] = [];
   let rows: BurstRow[] = [];
+  let counters: Events["counters"] | null = null;
 
   const flush = (): void => {
     if (pdus.length > 0) {
@@ -55,6 +58,11 @@ export function registerIpc(
     if (rows.length > 0) {
       io.send("burst-row", rows);
       rows = [];
+    }
+    if (counters !== null) {
+      // Counters are cumulative, so only the newest snapshot is worth sending.
+      io.send("counters", counters);
+      counters = null;
     }
   };
 
@@ -84,6 +92,9 @@ export function registerIpc(
     },
     pushBurstRow(row) {
       rows.push(row);
+    },
+    pushCounters(next) {
+      counters = next;
     },
     pushState(payload) {
       io.send("state", payload);

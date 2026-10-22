@@ -6,6 +6,7 @@ import {
   directionArrow,
   traceRowText,
   droppedNotice,
+  pendingNotice,
 } from "../../src/shared/ui/hexdump";
 import type { WirePdu } from "../../src/shared/api";
 
@@ -96,6 +97,22 @@ describe("trace row rendering", () => {
     expect(traceRowText({ ...row, commandStatus: 0x58, statusName: "ESME_RTHROTTLED" })).toContain(
       "ESME_RTHROTTLED"
     );
+  });
+});
+
+describe("pendingNotice", () => {
+  it("says nothing when the framer holds nothing", () => {
+    expect(pendingNotice({ buffered: 0, declared: null })).toBe("");
+  });
+
+  it("names how much is held and how much the PDU claims", () => {
+    const notice = pendingNotice({ buffered: 100, declared: 800 });
+    expect(notice).toContain("100");
+    expect(notice).toContain("800");
+  });
+
+  it("says so when the header itself is incomplete", () => {
+    expect(pendingNotice({ buffered: 3, declared: null })).toMatch(/header/i);
   });
 });
 

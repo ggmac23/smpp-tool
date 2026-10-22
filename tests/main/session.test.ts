@@ -395,6 +395,31 @@ describe("response timeouts (Review Focus 5)", () => {
     expect((await second).fields.message_id).toBe("OK");
   });
 
+  it("rejects sends still queued for a window slot when the connection drops", async () => {
+    smsc = new FakeSmsc();
+    smsc.on("submit_sm", () => null); // never answer: the window fills and stays full
+    const s = await open({ windowSize: 2, responseTimeoutMs: 30000 });
+    await s.bind(BIND);
+
+    // Two take the window; four queue behind it.
+    const sends = Array.from({ length: 6 }, () =>
+      s.send({ commandId: CommandId.submit_sm, fields: {} }).then(
+        () => "resolved",
+        (e: Error) => e.message
+      )
+    );
+
+    await until(() => smsc!.received.length >= 3);
+    await smsc.close();
+    smsc = undefined;
+
+    const outcomes = await Promise.all(sends);
+    expect(outcomes).toHaveLength(6);
+    for (const outcome of outcomes) {
+      expect(outcome).toMatch(/connection closed/i);
+    }
+  });
+
   it("leaves no pending requests behind after a timeout", async () => {
     smsc = new FakeSmsc();
     smsc.on("submit_sm", () => null);

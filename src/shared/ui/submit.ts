@@ -56,6 +56,8 @@ function tonNpi(label: string): { ton: number; npi: number } {
 }
 
 const MIN_ADDRESS_LENGTH = 8;
+/** short_message's length field is one octet, so a single PDU cannot carry more. */
+export const SHORT_MESSAGE_MAX = 254;
 
 /**
  * Turn the submit form into the PDUs it means.
@@ -91,12 +93,27 @@ export function buildSubmitInput(v: SubmitFormValues): BuiltSubmit {
   }
 
   const udh = cleanHex(v.udhHex);
-  const measurement = measure(v.text, v.dataCoding, v.segmentation, v.packing);
+  // A hand-written UDH turns automatic concatenation off, so whatever the
+  // segmentation selector says, one PDU goes out and the counter must agree.
+  const effectiveMode = udh.length > 0 ? "none" : v.segmentation;
+  const measurement = measure(v.text, v.dataCoding, effectiveMode, v.packing);
 
   if (measurement.unmappable.length > 0) {
     warnings.push(
       `data_coding ${v.dataCoding} cannot represent ${measurement.unmappable.join(" ")}; ` +
         "those characters go out as question marks."
+    );
+  }
+
+  if (
+    v.placement === "short_message" &&
+    measurement.parts === 1 &&
+    measurement.bytes > SHORT_MESSAGE_MAX
+  ) {
+    warnings.push(
+      `the body is ${measurement.bytes} octets but sm_length is a single octet, so it will be ` +
+        `written as ${measurement.bytes & 0xff}. Segment the message or use message_payload. ` +
+        "Sending it anyway."
     );
   }
 
@@ -166,5 +183,62 @@ export function counterText(m: Measurement): string {
   const base = `${m.parts} part${m.parts === 1 ? "" : "s"} · ${m.chars} chars · ${m.bits} bits · ${m.bytes} bytes`;
   return m.unmappable.length > 0 ? `${base} · cannot encode ${m.unmappable.join(" ")}` : base;
 }
+
+export interface SamplePreset {
+  key: keyof typeof SAMPLES;
+  label: string;
+  dataCoding: number;
+  dataCodingLabel: string;
+  segmentation: SegmentationMode;
+  segmentationLabel: string;
+  parts: number;
+}
+
+/**
+ * The reference tool's four sample messages.
+ *
+ * Each carries the segmentation its body needs: a three-part sample picked
+ * while the form says "one PDU" would produce a body far past what sm_length
+ * can describe, which is an error the SMSC reports and the user has to guess
+ * at. Choosing a sample therefore sets the mode it implies.
+ */
+export const SAMPLE_PRESETS: SamplePreset[] = [
+  {
+    key: "gsm1",
+    label: "GSM 1 part",
+    dataCoding: DataCoding.GSM_DEFAULT,
+    dataCodingLabel: "0 — GSM 03.38 default",
+    segmentation: "none",
+    segmentationLabel: "None — one PDU",
+    parts: 1,
+  },
+  {
+    key: "ucs2_1",
+    label: "UCS2 1 part",
+    dataCoding: DataCoding.UCS2,
+    dataCodingLabel: "8 — UCS2",
+    segmentation: "none",
+    segmentationLabel: "None — one PDU",
+    parts: 1,
+  },
+  {
+    key: "gsm3",
+    label: "GSM 3 parts",
+    dataCoding: DataCoding.GSM_DEFAULT,
+    dataCodingLabel: "0 — GSM 03.38 default",
+    segmentation: "udh",
+    segmentationLabel: "UDH concatenation",
+    parts: 3,
+  },
+  {
+    key: "ucs2_3",
+    label: "UCS2 3 parts",
+    dataCoding: DataCoding.UCS2,
+    dataCodingLabel: "8 — UCS2",
+    segmentation: "udh",
+    segmentationLabel: "UDH concatenation",
+    parts: 3,
+  },
+];
 
 export { TLV_MESSAGE_PAYLOAD, DataCoding, SAMPLES };

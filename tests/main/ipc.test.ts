@@ -170,6 +170,27 @@ describe("event batching", () => {
     handle.dispose();
   });
 
+  it("batches counters instead of sending one message per PDU", () => {
+    const { handle, sent } = setup();
+    for (let i = 0; i < 50; i++) handle.pushCounters({ submit_sm: { sent: i, received: 0 } });
+    expect(sent.filter((s) => s.channel === "counters")).toHaveLength(0);
+
+    handle.flush();
+    const batches = sent.filter((s) => s.channel === "counters");
+    expect(batches).toHaveLength(1);
+    // The latest snapshot wins; intermediate ones are not worth a round trip.
+    expect(batches[0].payload).toEqual({ submit_sm: { sent: 49, received: 0 } });
+    handle.dispose();
+  });
+
+  it("sends no counters when none were pushed", () => {
+    const { handle, sent } = setup();
+    handle.pushPdu({ seq: 1 } as never);
+    handle.flush();
+    expect(sent.filter((s) => s.channel === "counters")).toHaveLength(0);
+    handle.dispose();
+  });
+
   it("sends state changes immediately rather than batching them", () => {
     const { handle, sent } = setup();
     handle.pushState({ state: "bound", mode: "transceiver" });
