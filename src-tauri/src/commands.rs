@@ -14,21 +14,21 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::app::burst::{BurstDone, BurstRow};
+use crate::app::burst::BurstDone;
 use crate::app::compose::{
     compose_submit as compose, preview_pdu as preview, ComposedSubmit, SubmitFormValues,
 };
-use crate::app::controller::{BindAccepted, Controller, ProfileSecrets, SendOutcome};
+use crate::app::controller::{BindAccepted, Controller, EncodedBody, ProfileSecrets, SendOutcome};
 use crate::app::events::{Emitter, EventHub, DEFAULT_BATCH};
 use crate::app::loadtest::LoadReport;
 use crate::app::profiles::{KeyringSecrets, Profile, ProfileStore};
 use crate::app::trace::Counter;
 use crate::app::wire::{
     BindRequest, ConnectRequest, ExportFormat, MeasureRequest, PduPreview, SendPduRequest,
-    StartBurstRequest, StartLoadRequest, StatusReport, WirePdu,
+    StartBurstRequest, StartLoadRequest, StatusReport, WireBurstRow, WirePdu,
 };
 use crate::smpp::summary::DescribedField;
-use crate::smpp::text::Measurement;
+use crate::smpp::text::{Gsm7Packing, Measurement};
 
 /// Every command the renderer may call. Kept beside the handler list, and a
 /// test asserts the two agree: a command missing from the handler list is a
@@ -43,6 +43,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "compose_submit",
     "preview_pdu",
     "measure",
+    "encode_body",
     "start_burst",
     "stop_burst",
     "burst_rows",
@@ -120,6 +121,18 @@ pub async fn preview_pdu(hex: String) -> Result<PduPreview, String> {
     Ok(preview(&hex))
 }
 
+/// Encodes a message body for the forms that are not the submit form, so no
+/// renderer has to carry a codec.
+#[tauri::command]
+pub async fn encode_body(
+    ctl: Ctl<'_>,
+    text: String,
+    data_coding: u8,
+    packing: Gsm7Packing,
+) -> Result<EncodedBody, String> {
+    Ok(ctl.encode_body(&text, data_coding, packing))
+}
+
 #[tauri::command]
 pub async fn measure(ctl: Ctl<'_>, req: MeasureRequest) -> Result<Measurement, String> {
     Ok(ctl.measure(&req))
@@ -140,7 +153,11 @@ pub async fn stop_burst(ctl: Ctl<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn burst_rows(ctl: Ctl<'_>, from: usize, limit: usize) -> Result<Vec<BurstRow>, String> {
+pub async fn burst_rows(
+    ctl: Ctl<'_>,
+    from: usize,
+    limit: usize,
+) -> Result<Vec<WireBurstRow>, String> {
     Ok(ctl.burst_rows(from, limit))
 }
 
@@ -316,6 +333,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         compose_submit,
         preview_pdu,
         measure,
+        encode_body,
         start_burst,
         stop_burst,
         burst_rows,

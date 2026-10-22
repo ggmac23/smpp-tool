@@ -45,7 +45,7 @@ pub struct BurstConfig {
     pub await_dlr: Duration,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BurstRow {
     pub id: String,
@@ -58,8 +58,10 @@ pub struct BurstRow {
     pub submit_latency_ms: Option<u64>,
     pub dlr_state: Option<String>,
     pub dlr_latency_ms: Option<u64>,
+    /// When the first part went out. The runner's own bookkeeping, visible
+    /// inside the crate only so other modules can build a row in a test.
     #[serde(skip)]
-    sent_at: Option<Instant>,
+    pub(crate) sent_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]

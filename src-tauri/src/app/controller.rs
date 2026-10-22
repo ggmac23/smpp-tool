@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
-use crate::app::burst::{BurstConfig, BurstDone, BurstEvent, BurstRow, BurstRunner};
+use crate::app::burst::{BurstConfig, BurstDone, BurstEvent, BurstRunner};
 use crate::app::dlr::CorrelationConfig;
 use crate::app::events::EventHub;
 use crate::app::export::{to_csv, trace_to_text};
@@ -26,14 +26,15 @@ use crate::app::session::{
 use crate::app::trace::{Counter, Direction, TraceEntry, TraceStore, DEFAULT_TRACE_CAP};
 use crate::app::transport::{TlsOptions, Transport, TransportOptions};
 use crate::app::wire::{
-    to_pdu_input, to_wire_pdu, BindRequest, ConnectRequest, ExportFormat, MeasureRequest,
-    SendPduRequest, StartBurstRequest, StartLoadRequest, StatusReport, WirePdu,
+    to_pdu_input, to_wire_burst_row, to_wire_pdu, BindRequest, ConnectRequest, ExportFormat,
+    MeasureRequest, SendPduRequest, StartBurstRequest, StartLoadRequest, StatusReport,
+    WireBurstRow, WirePdu,
 };
-use crate::smpp::constants::{command_name, command_status_name};
+use crate::smpp::constants::command_name;
 use crate::smpp::decode::{decode_pdu, Pdu};
 use crate::smpp::encode::encode_raw;
 use crate::smpp::summary::{describe, summarise, DescribedField};
-use crate::smpp::text::{measure, Measurement};
+use crate::smpp::text::{encode_text, measure, Gsm7Packing, Measurement};
 
 const TRACE_CSV_COLUMNS: &[&str] = &[
     "seq",
@@ -64,6 +65,15 @@ const BURST_CSV_COLUMNS: &[&str] = &[
 pub struct SendOutcome {
     pub sequence_number: u32,
     pub command_status: u32,
+}
+
+/// A body, encoded, with the characters the coding could not hold named.
+/// Those go out as question marks: a warning, never a refusal.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncodedBody {
+    pub hex: String,
+    pub unmappable: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -229,6 +239,16 @@ impl Controller {
         measure(&req.text, req.data_coding, req.mode, req.packing)
     }
 
+    /// Encodes a message body, so the forms that are not the submit form can
+    /// put bytes in an octet field without the renderer carrying a codec.
+    pub fn encode_body(&self, text: &str, data_coding: u8, packing: Gsm7Packing) -> EncodedBody {
+        let encoded = encode_text(text, data_coding, packing);
+        EncodedBody {
+            hex: crate::smpp::summary::hex(&encoded.bytes),
+            unmappable: encoded.unmappable,
+        }
+    }
+
     /* ---------------------------------------------------------------- */
     /* burst                                                            */
 
@@ -263,10 +283,16 @@ impl Controller {
         }
     }
 
-    pub fn burst_rows(&self, from: usize, limit: usize) -> Vec<BurstRow> {
+    pub fn burst_rows(&self, from: usize, limit: usize) -> Vec<WireBurstRow> {
         let burst = self.live.lock().unwrap().burst.clone();
         match burst {
-            Some(burst) => burst.rows().into_iter().skip(from).take(limit).collect(),
+            Some(burst) => burst
+                .rows()
+                .iter()
+                .skip(from)
+                .take(limit)
+                .map(to_wire_burst_row)
+                .collect(),
             None => Vec::new(),
         }
     }
@@ -392,22 +418,7 @@ impl Controller {
 
     pub fn export_burst(&self, path: &str) -> Result<String, String> {
         let rows = self.burst_rows(0, usize::MAX);
-        // statusName is not on the row: it is the name of the status the row
-        // already carries, added for the reader of the file.
-        let mut values: Vec<serde_json::Value> = Vec::with_capacity(rows.len());
-        for row in &rows {
-            let mut v = serde_json::to_value(row)
-                .map_err(|e| format!("could not write the burst rows: {e}"))?;
-            let name = row
-                .command_status
-                .map(command_status_name)
-                .unwrap_or_default();
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert("statusName".into(), serde_json::Value::String(name));
-            }
-            values.push(v);
-        }
-        let body = to_csv(&csv_rows(&values, BURST_CSV_COLUMNS), BURST_CSV_COLUMNS);
+        let body = to_csv(&csv_rows(&rows, BURST_CSV_COLUMNS), BURST_CSV_COLUMNS);
         write_file(path, &body)
     }
 
@@ -542,7 +553,7 @@ impl Controller {
                 match event {
                     // Rows are batched: a 50,000-message burst must not be
                     // 50,000 messages to the webview.
-                    BurstEvent::Row(row) => hub.push_burst_row(row),
+                    BurstEvent::Row(row) => hub.push_burst_row(to_wire_burst_row(&row)),
                     BurstEvent::Progress(p) => hub.emit_now("burst-progress", &p),
                     BurstEvent::Done(done) => {
                         hub.flush();
@@ -1055,6 +1066,46 @@ mod tests {
             last_row < done_at,
             "burst-done arrived before the rows it summarises"
         );
+    }
+
+    #[tokio::test]
+    async fn the_rows_it_hands_the_renderer_carry_the_status_name() {
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let dir = TempDir::new("ctl-rowname");
+        let (rec, ctl) = controller(&dir);
+
+        ctl.connect(connect_request(port)).await.unwrap();
+        ctl.bind(bind_request()).await.unwrap();
+        ctl.start_burst(burst_request(2, 200)).await.unwrap();
+
+        let rows = ctl.burst_rows(0, 10);
+        assert_eq!(rows[0].status_name, "ESME_ROK");
+
+        until(|| rec.batched("burst-row").len() == 2).await;
+        let sent = rec.batched("burst-row");
+        assert_eq!(sent[0]["statusName"].as_str(), Some("ESME_ROK"));
+        assert_eq!(sent[0]["recipient"].as_str(), Some("393331234567"));
+    }
+
+    #[tokio::test]
+    async fn encodes_a_body_so_the_renderer_never_has_to() {
+        let dir = TempDir::new("ctl-encode");
+        let (_rec, ctl) = controller(&dir);
+
+        let out = ctl.encode_body("hi", 0, Default::default());
+        assert_eq!(out.hex, "6869");
+        assert!(out.unmappable.is_empty());
+
+        // UCS2 is two octets a character, big-endian.
+        let ucs2 = ctl.encode_body("hi", 8, Default::default());
+        assert_eq!(ucs2.hex, "00680069");
+
+        // A character the coding cannot hold is named, and still goes out as
+        // a question mark rather than stopping the send.
+        let snowman = ctl.encode_body("a\u{2744}", 0, Default::default());
+        assert_eq!(snowman.unmappable, vec!["\u{2744}".to_string()]);
+        assert_eq!(snowman.hex, "613f");
     }
 
     #[tokio::test]

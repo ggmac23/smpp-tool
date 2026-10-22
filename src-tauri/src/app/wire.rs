@@ -7,6 +7,7 @@
 
 use indexmap::IndexMap;
 
+use crate::app::burst::BurstRow;
 use crate::app::dlr::CorrelationConfig;
 use crate::app::loadtest::LoadMode;
 use crate::app::recipients::RecipientSource;
@@ -236,6 +237,29 @@ pub struct StartLoadRequest {
     pub packing: Gsm7Packing,
 }
 
+/// A burst row as the renderer sees it: the row itself, plus the name of the
+/// status it carries. The renderer must not hold a status table of its own
+/// just to label a row.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WireBurstRow {
+    #[serde(flatten)]
+    pub row: BurstRow,
+    pub status_name: String,
+}
+
+pub fn to_wire_burst_row(row: &BurstRow) -> WireBurstRow {
+    WireBurstRow {
+        row: row.clone(),
+        // Empty, not "ESME_ROK": a row with no verdict yet has not been
+        // accepted, and saying so would be a lie the user acts on.
+        status_name: row
+            .command_status
+            .map(command_status_name)
+            .unwrap_or_default(),
+    }
+}
+
 /// Strips everything that is not a hex digit, so a user may type `0x`,
 /// spaces, colons or newlines and still mean the same bytes. The `0x` goes
 /// first: `0` is itself a hex digit, and filtering before stripping would
@@ -451,6 +475,52 @@ mod tests {
         assert_eq!(wire.status_name, "ESME_RTHROTTLED");
         assert_eq!(wire.seq, 7);
         assert_eq!(wire.direction, "in");
+    }
+
+    #[test]
+    fn spells_out_the_status_name_on_a_burst_row() {
+        // The renderer must not carry a 67-entry status table just to label a
+        // row. The backend owns the names.
+        let row = crate::app::burst::BurstRow {
+            id: "r0".into(),
+            recipient: "393331234567".into(),
+            body: "hi".into(),
+            pdus: 1,
+            message_id: Some("abc".into()),
+            command_status: Some(0x58),
+            submit_latency_ms: Some(12),
+            ..Default::default()
+        };
+        let wire = to_wire_burst_row(&row);
+        assert_eq!(wire.status_name, "ESME_RTHROTTLED");
+        assert_eq!(wire.row.command_status, Some(0x58));
+
+        let json = serde_json::to_value(&wire).unwrap();
+        for key in [
+            "id",
+            "recipient",
+            "pdus",
+            "messageId",
+            "commandStatus",
+            "statusName",
+        ] {
+            assert!(
+                json.get(key).is_some(),
+                "the renderer's `{key}` is missing from {json}"
+            );
+        }
+    }
+
+    #[test]
+    fn leaves_the_status_name_empty_while_a_row_has_no_verdict() {
+        let row = crate::app::burst::BurstRow {
+            id: "r0".into(),
+            recipient: "393331234567".into(),
+            body: "hi".into(),
+            pdus: 1,
+            ..Default::default()
+        };
+        assert_eq!(to_wire_burst_row(&row).status_name, "");
     }
 
     #[test]
