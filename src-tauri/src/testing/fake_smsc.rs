@@ -142,8 +142,12 @@ struct Shared {
     handlers: HashMap<String, Handler>,
     next_message_id: u32,
     connections: Vec<mpsc::UnboundedSender<Vec<u8>>>,
+    /// One per served connection. Aborting the task drops the socket, which
+    /// is how a test makes the SMSC hang up.
+    serving: Vec<tokio::task::AbortHandle>,
 }
 
+#[derive(Clone)]
 pub struct FakeSmsc {
     shared: Arc<Mutex<Shared>>,
     tls: Option<TlsMaterial>,
@@ -190,6 +194,15 @@ impl FakeSmsc {
         self.shared.lock().unwrap().raw_in.clone()
     }
 
+    /// Hang up on every connected client, the way an SMSC that restarts does.
+    pub fn drop_connections(&self) {
+        let mut shared = self.shared.lock().unwrap();
+        for handle in shared.serving.drain(..) {
+            handle.abort();
+        }
+        shared.connections.clear();
+    }
+
     pub fn connection_count(&self) -> usize {
         self.shared.lock().unwrap().connections.len()
     }
@@ -228,10 +241,11 @@ impl FakeSmsc {
                 let Ok((socket, _)) = listener.accept().await else {
                     return;
                 };
+                let registry = shared.clone();
                 let shared = shared.clone();
                 let tls = tls;
 
-                tokio::spawn(async move {
+                let task = tokio::spawn(async move {
                     match tls {
                         None => serve(socket, shared).await,
                         Some(material) => {
@@ -264,6 +278,7 @@ impl FakeSmsc {
                         }
                     }
                 });
+                registry.lock().unwrap().serving.push(task.abort_handle());
             }
         });
 

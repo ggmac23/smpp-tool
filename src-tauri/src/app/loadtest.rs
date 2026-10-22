@@ -210,9 +210,10 @@ impl Tally {
         }
     }
 
+    /// Latencies come back in the order they were recorded. Sorting here
+    /// would destroy the only thing that says which step a sample belongs to.
     fn snapshot(&self) -> (usize, usize, BTreeMap<String, usize>, Vec<u64>) {
-        let mut latencies = self.latencies.lock().unwrap().clone();
-        latencies.sort_unstable();
+        let latencies = self.latencies.lock().unwrap().clone();
         (
             self.submitted.load(Ordering::SeqCst),
             self.accepted.load(Ordering::SeqCst),
@@ -327,15 +328,17 @@ impl LoadRunner {
 
         let (steps, ended, sent) = match cfg.mode {
             LoadMode::Fixed { rate_per_sec } => {
-                let sent = self
+                let outcome = self
                     .run_at(&cfg, &connections, &live, rate_per_sec, cfg.messages, None)
                     .await;
-                let ended = if self.stopping.load(Ordering::SeqCst) {
+                let ended = if outcome.lost {
+                    LoadEndReason::ConnectionsLost
+                } else if self.stopping.load(Ordering::SeqCst) {
                     LoadEndReason::Stopped
                 } else {
                     LoadEndReason::Complete
                 };
-                (Vec::new(), ended, sent)
+                (Vec::new(), ended, outcome.sent)
             }
             LoadMode::Ramp { .. } => self.run_ramp(&cfg, &connections, &live).await,
         };
@@ -415,6 +418,9 @@ impl LoadRunner {
 
     /// Send `budget` messages at `rate`, or until `deadline`. Returns how many
     /// were started.
+    /// Sends `budget` messages at `rate`, round-robin over `live`. Returns
+    /// how many it handed out and whether it stopped because every
+    /// connection had gone.
     async fn run_at(
         &self,
         cfg: &LoadTestConfig,
@@ -423,7 +429,7 @@ impl LoadRunner {
         rate: u32,
         budget: usize,
         deadline: Option<Instant>,
-    ) -> usize {
+    ) -> StepOutcome {
         let segments = segment(&SegmentOptions {
             text: cfg.text.clone(),
             data_coding: cfg.data_coding,
@@ -442,9 +448,23 @@ impl LoadRunner {
         let mut inflight: Vec<tokio::task::JoinHandle<()>> = Vec::new();
         let mut sent = 0usize;
         let mut next = 0usize;
+        let mut lost = false;
 
         while sent < budget {
             if self.stopping.load(Ordering::SeqCst) {
+                break;
+            }
+            // An SMSC that goes away mid-run must stop the test, not have the
+            // rest of the budget poured onto dead sockets and then reported
+            // as a load it carried.
+            if live.iter().all(|i| {
+                connections[*i]
+                    .session
+                    .as_ref()
+                    .map(|s| s.state() != BindState::Bound)
+                    .unwrap_or(true)
+            }) {
+                lost = true;
                 break;
             }
             if deadline.map(|d| Instant::now() >= d).unwrap_or(false) {
@@ -513,7 +533,7 @@ impl LoadRunner {
             let _ = handle.await;
         }
         self.emit_progress(connections, budget, rate);
-        sent
+        StepOutcome { sent, lost }
     }
 
     async fn run_ramp(
@@ -559,7 +579,7 @@ impl LoadRunner {
                 .min(((rate as f64) * step_duration.as_secs_f64()).ceil() as usize)
                 .max(1);
             let started = Instant::now();
-            let sent = self
+            let outcome = self
                 .run_at(
                     cfg,
                     connections,
@@ -569,7 +589,10 @@ impl LoadRunner {
                     Some(started + step_duration),
                 )
                 .await;
-            total_sent += sent;
+            total_sent += outcome.sent;
+            if outcome.lost {
+                return (steps, LoadEndReason::ConnectionsLost, total_sent);
+            }
 
             let after = tally_totals(connections);
             let measured = measure_step(&before, &after, rate, started.elapsed());
@@ -638,6 +661,7 @@ impl LoadRunner {
     ) -> LoadReport {
         let elapsed = started.elapsed();
         let totals = tally_totals(connections);
+        let sorted_all = totals.sorted_latencies();
 
         let per_connection = connections
             .iter()
@@ -677,9 +701,9 @@ impl LoadRunner {
             submitted: totals.submitted,
             accepted: totals.accepted,
             errors_by_status: totals.errors,
-            latency_p50: percentile(&totals.latencies, 50),
-            latency_p95: percentile(&totals.latencies, 95),
-            latency_p99: percentile(&totals.latencies, 99),
+            latency_p50: percentile(&sorted_all, 50),
+            latency_p95: percentile(&sorted_all, 95),
+            latency_p99: percentile(&sorted_all, 99),
             duration_ms: elapsed.as_millis() as u64,
             per_connection,
             steps,
@@ -699,12 +723,30 @@ impl Default for LoadRunner {
     }
 }
 
+/// What one run of the pacing loop did.
+struct StepOutcome {
+    sent: usize,
+    lost: bool,
+}
+
 #[derive(Default, Clone)]
 struct Totals {
     submitted: usize,
     accepted: usize,
     errors: BTreeMap<String, usize>,
-    latencies: Vec<u64>,
+    /// One list per connection, each in the order its samples were taken.
+    /// A ramp step's own samples are the part of each list that was not
+    /// there when the step began, so the order has to survive.
+    per_connection: Vec<Vec<u64>>,
+}
+
+impl Totals {
+    /// Every sample, sorted, for the percentiles over a whole run.
+    fn sorted_latencies(&self) -> Vec<u64> {
+        let mut all: Vec<u64> = self.per_connection.iter().flatten().copied().collect();
+        all.sort_unstable();
+        all
+    }
 }
 
 fn tally_totals(connections: &[Connection]) -> Totals {
@@ -716,9 +758,8 @@ fn tally_totals(connections: &[Connection]) -> Totals {
         for (name, count) in errors {
             *totals.errors.entry(name).or_insert(0) += count;
         }
-        totals.latencies.extend(latencies);
+        totals.per_connection.push(latencies);
     }
-    totals.latencies.sort_unstable();
     totals
 }
 
@@ -728,10 +769,21 @@ fn measure_step(before: &Totals, after: &Totals, rate: u32, elapsed: Duration) -
     let errors = submitted.saturating_sub(accepted);
     let seconds = elapsed.as_secs_f64();
 
-    // The step's own latencies are the tail of the combined list.
-    let fresh: Vec<u64> =
-        after.latencies[before.latencies.len().min(after.latencies.len())..].to_vec();
-    let mut sorted = fresh;
+    // A step's own latencies are what each connection added since the step
+    // began. Taken from the combined list by count they would be somebody
+    // else's samples, and taken from a sorted list they would be the worst of
+    // the whole run — which is how a fast step inherits a slow one's outlier
+    // and gets blamed for it.
+    let mut sorted: Vec<u64> = Vec::new();
+    for (index, after_one) in after.per_connection.iter().enumerate() {
+        let already = before
+            .per_connection
+            .get(index)
+            .map(Vec::len)
+            .unwrap_or(0)
+            .min(after_one.len());
+        sorted.extend_from_slice(&after_one[already..]);
+    }
     sorted.sort_unstable();
 
     RampStep {
@@ -870,6 +922,85 @@ mod tests {
             }
             other => panic!("expected a ramp, got {other:?}"),
         }
+    }
+
+    fn totals_with(per_connection: Vec<Vec<u64>>) -> Totals {
+        let mut totals = Totals::default();
+        for latencies in per_connection {
+            totals.submitted += latencies.len();
+            totals.accepted += latencies.len();
+            totals.per_connection.push(latencies);
+        }
+        totals
+    }
+
+    #[test]
+    fn a_steps_latency_is_its_own_samples_not_the_runs_worst() {
+        // The first step was slow throughout — a cold SMSC, a TLS handshake,
+        // a cache that had not warmed. The second step is fast. If a step's
+        // samples are taken as a count from the end of a sorted list, the
+        // second step inherits the first one's latencies wholesale and is
+        // blamed for them: the ramp then calls a rate broken that the SMSC
+        // was carrying comfortably, and reports a sustained rate one step too
+        // low. That number is the whole point of the feature.
+        let before = totals_with(vec![vec![900; 100], vec![900; 100]]);
+
+        let mut after = before.clone();
+        for connection in &mut after.per_connection {
+            connection.extend(std::iter::repeat_n(8u64, 100));
+        }
+        after.submitted += 200;
+        after.accepted += 200;
+
+        let step = measure_step(&before, &after, 100, Duration::from_secs(2));
+        assert_eq!(step.submitted, 200, "the step's own submits");
+        assert_eq!(
+            step.latency_p95, 8,
+            "the second step ran at 8 ms throughout; {} ms is the first step's",
+            step.latency_p95
+        );
+    }
+
+    #[test]
+    fn a_steps_latency_still_sees_its_own_spike() {
+        // The other direction: a step that really did slow down must say so.
+        let before = totals_with(vec![vec![8; 100], vec![8; 100]]);
+        let mut after = before.clone();
+        for connection in &mut after.per_connection {
+            connection.extend(std::iter::repeat_n(900u64, 100));
+        }
+        after.submitted += 200;
+        after.accepted += 200;
+
+        let step = measure_step(&before, &after, 100, Duration::from_secs(2));
+        assert_eq!(step.latency_p95, 900);
+    }
+
+    #[tokio::test]
+    async fn says_the_connections_were_lost_rather_than_claiming_it_finished() {
+        // The SMSC goes away mid-run. A fixed-rate test used to spend the
+        // rest of its budget on dead sockets and then report Complete, which
+        // tells the user their SMSC carried a load it never saw.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let runner = Arc::new(LoadRunner::new());
+
+        let hangup = smsc.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            hangup.drop_connections();
+        });
+
+        let report = runner
+            .start(config(port, 2, 4000, fixed(80)))
+            .await
+            .unwrap();
+
+        assert_eq!(report.ended, LoadEndReason::ConnectionsLost);
+        assert!(
+            report.submitted < 4000,
+            "it should have stopped early, not spent the whole budget on dead sockets"
+        );
     }
 
     #[tokio::test]

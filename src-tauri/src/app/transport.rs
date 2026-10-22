@@ -54,9 +54,18 @@ pub enum TransportEvent {
     BytesOut(usize),
 }
 
+/// What the writer task is asked to do. A close is its own message rather
+/// than an empty payload: when the two were the same thing, sending no bytes
+/// tore the connection down with no error and no explanation.
+#[derive(Debug)]
+enum Outbound {
+    Bytes(Vec<u8>),
+    Shutdown,
+}
+
 #[derive(Debug)]
 pub struct Transport {
-    out: mpsc::UnboundedSender<Vec<u8>>,
+    out: mpsc::UnboundedSender<Outbound>,
     connected: Arc<AtomicBool>,
     pending: Arc<Mutex<Pending>>,
 }
@@ -158,7 +167,7 @@ impl Transport {
             .map_err(|e| format!("could not connect to {}:{}: {e}", opts.host, opts.port))?;
 
         let (events_tx, events_rx) = mpsc::unbounded_channel();
-        let (out_tx, out_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (out_tx, out_rx) = mpsc::unbounded_channel::<Outbound>();
         let connected = Arc::new(AtomicBool::new(true));
         let pending = Arc::new(Mutex::new(Pending {
             buffered: 0,
@@ -220,8 +229,11 @@ impl Transport {
         if !self.is_connected() {
             return Err("the transport is not connected".into());
         }
+        if bytes.is_empty() {
+            return Err("there are no bytes to send".into());
+        }
         self.out
-            .send(bytes.to_vec())
+            .send(Outbound::Bytes(bytes.to_vec()))
             .map_err(|_| "the transport is not connected".to_string())
     }
 
@@ -229,14 +241,14 @@ impl Transport {
     /// left alone here: clearing it first would make that task think somebody
     /// else had already reported the close, and nothing would be emitted.
     pub fn shutdown(&self) {
-        let _ = self.out.send(Vec::new());
+        let _ = self.out.send(Outbound::Shutdown);
     }
 }
 
 fn spawn_io<S>(
     stream: S,
     events: mpsc::UnboundedSender<TransportEvent>,
-    mut out: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut out: mpsc::UnboundedReceiver<Outbound>,
     connected: Arc<AtomicBool>,
     pending: Arc<Mutex<Pending>>,
 ) where
@@ -248,14 +260,16 @@ fn spawn_io<S>(
         let events = events.clone();
         let connected = connected.clone();
         tokio::spawn(async move {
-            while let Some(bytes) = out.recv().await {
-                if bytes.is_empty() {
-                    break; // shutdown marker
-                }
-                let _ = events.send(TransportEvent::BytesOut(bytes.len()));
+            while let Some(message) = out.recv().await {
+                let Outbound::Bytes(bytes) = message else {
+                    break;
+                };
                 if writer.write_all(&bytes).await.is_err() {
                     break;
                 }
+                // Counted after the write, so a failed one is not reported as
+                // bytes that went out.
+                let _ = events.send(TransportEvent::BytesOut(bytes.len()));
             }
             let _ = writer.shutdown().await;
             if connected.swap(false, Ordering::SeqCst) {
@@ -436,6 +450,32 @@ mod tests {
         until(|| transport.pending().buffered == 20).await;
 
         assert_eq!(transport.pending().declared, Some(whole.len() as u32));
+    }
+
+    #[tokio::test]
+    async fn an_empty_write_is_refused_rather_than_closing_the_socket() {
+        // An empty payload used to be how `shutdown` signalled the writer, so
+        // sending no bytes silently tore the connection down: a user who
+        // cleared the hex box and pressed Send watched the bind disappear
+        // with no error and no explanation.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let (transport, _events) = Transport::connect(opts(port, plain())).await.unwrap();
+        smsc.wait_for_connection().await;
+
+        let refused = transport.write(&[]);
+        assert!(refused.is_err(), "an empty write must be refused");
+        assert!(
+            refused.unwrap_err().contains("no bytes"),
+            "the refusal should say what was wrong"
+        );
+
+        // And the socket is still there.
+        assert!(transport.is_connected());
+        transport
+            .write(&encode_pdu(&PduInput::new(id("enquire_link"), 1)))
+            .unwrap();
+        until(|| !smsc.received().is_empty()).await;
     }
 
     #[tokio::test]

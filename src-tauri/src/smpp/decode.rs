@@ -213,6 +213,20 @@ fn read_unsuccess_list(r: &mut Reader, count: usize) -> Result<Vec<UnsuccessEntr
 
 /// Decode one complete PDU. `buf` must be exactly the PDU, which is what the
 /// framer hands over.
+/// Whether this field would read zero bytes: a counted field whose count is
+/// zero. Every other kind needs at least one byte, so an exhausted body means
+/// it was never sent.
+fn occupies_nothing(def: &FieldDef, fields: &IndexMap<String, FieldValue>) -> bool {
+    match def.ty {
+        FieldType::Octets | FieldType::DestList | FieldType::UnsuccessList => def
+            .len_from
+            .and_then(|name| fields.get(name))
+            .map(|v| matches!(v, FieldValue::Num(0)))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
 pub fn decode_pdu(buf: &[u8]) -> Result<Pdu, PduDecodeError> {
     let fail = |message: String| PduDecodeError {
         message,
@@ -258,6 +272,19 @@ pub fn decode_pdu(buf: &[u8]) -> Result<Pdu, PduDecodeError> {
     let mut fields: IndexMap<String, FieldValue> = IndexMap::new();
 
     for def in defs {
+        // A body that has run out means the remaining fields are absent, not
+        // broken. This is how an SMSC rejects a bind or a submit: the header,
+        // the status, and nothing else. Refusing to decode it would cost the
+        // user the one thing the PDU came to say, and leave the request
+        // uncorrelated until it times out.
+        //
+        // A field that occupies no bytes is still present, though — a
+        // short_message whose sm_length is 0 ends the body exactly, and it
+        // was sent.
+        if r.remaining() == 0 && !occupies_nothing(def, &fields) {
+            break;
+        }
+
         let value = match def.ty {
             FieldType::U8 => FieldValue::Num(r.u8(def.name).map_err(fail)?),
             FieldType::U16 => FieldValue::Num(r.u16(def.name).map_err(fail)?),
@@ -301,6 +328,57 @@ pub fn decode_pdu(buf: &[u8]) -> Result<Pdu, PduDecodeError> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn decodes_a_response_that_carries_nothing_but_its_header() {
+        // This is how an SMSC rejects a bind: command_length 16, the status,
+        // and no body at all. Refusing to decode it costs the user the one
+        // thing the PDU came to say.
+        let bytes = pdu(
+            0x8000_0009,
+            crate::smpp::constants::command_status("ESME_RINVPASWD").unwrap(),
+            1,
+            &[],
+        );
+        let pdu = decode_pdu(&bytes).expect("a header-only response must decode");
+
+        assert_eq!(
+            pdu.command_status,
+            crate::smpp::constants::command_status("ESME_RINVPASWD").unwrap()
+        );
+        assert_eq!(pdu.sequence_number, 1);
+        assert_eq!(
+            pdu.str_field("system_id"),
+            None,
+            "the field was never sent, and saying so beats inventing an empty one"
+        );
+    }
+
+    #[test]
+    fn decodes_a_rejected_submit_with_no_message_id() {
+        let bytes = pdu(
+            0x8000_0004,
+            crate::smpp::constants::command_status("ESME_RTHROTTLED").unwrap(),
+            7,
+            &[],
+        );
+        let pdu = decode_pdu(&bytes).expect("a throttled submit_sm_resp must decode");
+        assert_eq!(
+            pdu.command_status,
+            crate::smpp::constants::command_status("ESME_RTHROTTLED").unwrap()
+        );
+        assert_eq!(pdu.str_field("message_id"), None, "no message id was sent");
+    }
+
+    #[test]
+    fn still_refuses_a_body_that_stops_in_the_middle_of_a_field() {
+        // Absent is not the same as truncated: a C-string that has started
+        // and has no terminator is a real framing problem and must say so.
+        let bytes = pdu(0x8000_0009, 0, 1, b"esme");
+        let err = decode_pdu(&bytes).expect_err("a half-written field is an error");
+        assert!(err.message.contains("unterminated"), "{}", err.message);
+    }
+
     use super::*;
     use crate::smpp::constants::command_id;
     use crate::smpp::tlv::{encode_tlvs, Tlv};
