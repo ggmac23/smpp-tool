@@ -335,14 +335,17 @@ impl LoadRunner {
                 LoadEndReason::NoConnections,
                 started,
                 0,
+                Duration::ZERO,
             ));
         }
 
+        let sending_total;
         let (steps, ended, sent) = match cfg.mode {
             LoadMode::Fixed { rate_per_sec } => {
                 let outcome = self
                     .run_at(&cfg, &connections, &live, rate_per_sec, cfg.messages, None)
                     .await;
+                sending_total = outcome.sending;
                 let ended = if outcome.lost {
                     LoadEndReason::ConnectionsLost
                 } else if self.stopping.load(Ordering::SeqCst) {
@@ -352,7 +355,11 @@ impl LoadRunner {
                 };
                 (Vec::new(), ended, outcome.sent)
             }
-            LoadMode::Ramp { .. } => self.run_ramp(&cfg, &connections, &live).await,
+            LoadMode::Ramp { .. } => {
+                let (steps, ended, sent, sending) = self.run_ramp(&cfg, &connections, &live).await;
+                sending_total = sending;
+                (steps, ended, sent)
+            }
         };
 
         let sustained = sustained_rate(
@@ -370,6 +377,7 @@ impl LoadRunner {
             ended,
             started,
             sent,
+            sending_total,
         );
         Ok(report)
     }
@@ -466,6 +474,7 @@ impl LoadRunner {
         let mut sent = 0usize;
         let mut next = 0usize;
         let mut lost = false;
+        let sending_started = Instant::now();
 
         while sent < budget {
             if self.stopping.load(Ordering::SeqCst) {
@@ -546,11 +555,17 @@ impl LoadRunner {
             self.emit_progress(connections, budget, rate);
         }
 
+        let sending = sending_started.elapsed();
+
         for handle in inflight {
             let _ = handle.await;
         }
         self.emit_progress(connections, budget, rate);
-        StepOutcome { sent, lost }
+        StepOutcome {
+            sent,
+            lost,
+            sending,
+        }
     }
 
     async fn run_ramp(
@@ -558,7 +573,7 @@ impl LoadRunner {
         cfg: &LoadTestConfig,
         connections: &[Connection],
         live: &[usize],
-    ) -> (Vec<RampStep>, LoadEndReason, usize) {
+    ) -> (Vec<RampStep>, LoadEndReason, usize, Duration) {
         let LoadMode::Ramp {
             start_rate,
             step,
@@ -573,14 +588,15 @@ impl LoadRunner {
         let mut steps: Vec<RampStep> = Vec::new();
         let mut rate = start_rate.max(1);
         let mut total_sent = 0usize;
+        let mut sending_total = Duration::ZERO;
         let mut before = tally_totals(connections);
 
         loop {
             if self.stopping.load(Ordering::SeqCst) {
-                return (steps, LoadEndReason::Stopped, total_sent);
+                return (steps, LoadEndReason::Stopped, total_sent, sending_total);
             }
             if total_sent >= cfg.messages {
-                return (steps, LoadEndReason::Complete, total_sent);
+                return (steps, LoadEndReason::Complete, total_sent, sending_total);
             }
             if live.iter().all(|i| {
                 connections[*i]
@@ -589,7 +605,12 @@ impl LoadRunner {
                     .map(|s| s.state() != BindState::Bound)
                     .unwrap_or(true)
             }) {
-                return (steps, LoadEndReason::ConnectionsLost, total_sent);
+                return (
+                    steps,
+                    LoadEndReason::ConnectionsLost,
+                    total_sent,
+                    sending_total,
+                );
             }
 
             let budget = (cfg.messages - total_sent)
@@ -607,12 +628,18 @@ impl LoadRunner {
                 )
                 .await;
             total_sent += outcome.sent;
+            sending_total += outcome.sending;
             if outcome.lost {
-                return (steps, LoadEndReason::ConnectionsLost, total_sent);
+                return (
+                    steps,
+                    LoadEndReason::ConnectionsLost,
+                    total_sent,
+                    sending_total,
+                );
             }
 
             let after = tally_totals(connections);
-            let measured = measure_step(&before, &after, rate, started.elapsed());
+            let measured = measure_step(&before, &after, rate, outcome.sending);
             before = after;
 
             let short = fell_short(&measured);
@@ -652,10 +679,15 @@ impl LoadRunner {
             steps.push(record);
 
             if breached {
-                return (steps, LoadEndReason::Breached, total_sent);
+                return (steps, LoadEndReason::Breached, total_sent, sending_total);
             }
             if rate >= max_rate {
-                return (steps, LoadEndReason::ReachedMaxRate, total_sent);
+                return (
+                    steps,
+                    LoadEndReason::ReachedMaxRate,
+                    total_sent,
+                    sending_total,
+                );
             }
             rate = (rate + step).min(max_rate);
         }
@@ -684,6 +716,9 @@ impl LoadRunner {
         ended: LoadEndReason,
         started: Instant,
         messages: usize,
+        // Time spent handing work out. The rate is measured over this, not
+        // over the whole run: the tail coming back is not sending.
+        sending: Duration,
     ) -> LoadReport {
         let elapsed = started.elapsed();
         let totals = tally_totals(connections);
@@ -712,7 +747,13 @@ impl LoadRunner {
             })
             .collect();
 
-        let seconds = elapsed.as_secs_f64();
+        // The rate is what went out while sending, not what went out across a
+        // run that ends waiting for the last responses.
+        let seconds = if sending.is_zero() {
+            elapsed.as_secs_f64()
+        } else {
+            sending.as_secs_f64()
+        };
         let report = LoadReport {
             connections: cfg.connections,
             requested_rate_per_sec: requested,
@@ -753,6 +794,11 @@ impl Default for LoadRunner {
 struct StepOutcome {
     sent: usize,
     lost: bool,
+    /// How long the loop spent handing work out, which is what a rate is
+    /// measured over. The time after that is spent waiting for the tail to
+    /// come back: a real SMSC answers after a round trip, so counting that
+    /// against the rate makes a run that paced perfectly look slow.
+    sending: Duration,
 }
 
 #[derive(Default, Clone)]
@@ -1174,6 +1220,32 @@ mod tests {
         assert_eq!(
             done.messages, report.messages,
             "the event is what the UI draws; it cannot disagree with the report"
+        );
+    }
+
+    #[tokio::test]
+    async fn measures_the_rate_over_the_sending_not_over_the_waiting_afterwards() {
+        // A real SMSC answers after a round trip, so when the last message
+        // has been handed out there are still several in flight. Counting
+        // the time spent waiting for those against the rate makes a run that
+        // paced perfectly look slow — and with the shortfall check in place,
+        // makes a healthy step look like one the SMSC refused.
+        let smsc = FakeSmsc::new();
+        smsc.set_reply_delay(Duration::from_millis(200));
+        let port = smsc.listen().await;
+
+        let report = LoadRunner::new()
+            .start(config(port, 1, 20, fixed(20)))
+            .await
+            .unwrap();
+
+        assert_eq!(report.submitted, 20);
+        // Twenty at twenty a second is one second of sending. The 200ms spent
+        // waiting for the tail is not part of that second.
+        assert!(
+            report.achieved_rate_per_sec > 17.0,
+            "20/sec paced correctly came out as {:.1}/sec, which is the wait, not the rate",
+            report.achieved_rate_per_sec
         );
     }
 

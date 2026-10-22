@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -141,6 +142,10 @@ struct Shared {
     raw_in: Vec<u8>,
     handlers: HashMap<String, Handler>,
     next_message_id: u32,
+    /// How long to hold a reply before writing it. A real SMSC answers after
+    /// a round trip, and a fixture that answers instantly cannot show what
+    /// that does to a measurement.
+    reply_delay: Duration,
     connections: Vec<mpsc::UnboundedSender<Vec<u8>>>,
     /// One per served connection. Aborting the task drops the socket, which
     /// is how a test makes the SMSC hang up.
@@ -201,6 +206,11 @@ impl FakeSmsc {
             handle.abort();
         }
         shared.connections.clear();
+    }
+
+    /// Answer after this long, as a real peer does.
+    pub fn set_reply_delay(&self, delay: Duration) {
+        self.shared.lock().unwrap().reply_delay = delay;
     }
 
     pub fn connection_count(&self) -> usize {
@@ -378,7 +388,17 @@ where
 
             shared.lock().unwrap().received.push(pdu);
 
+            let delay = shared.lock().unwrap().reply_delay;
             for reply in replies.unwrap_or_default() {
+                if !delay.is_zero() {
+                    let tx = tx.clone();
+                    let bytes = encode_pdu(&reply);
+                    tokio::spawn(async move {
+                        tokio::time::sleep(delay).await;
+                        let _ = tx.send(bytes);
+                    });
+                    continue;
+                }
                 let _ = tx.send(encode_pdu(&reply));
             }
         }
