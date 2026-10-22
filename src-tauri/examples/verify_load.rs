@@ -50,6 +50,7 @@ fn script(port: u16) -> String {
           destination: "393331234567"
         }});
         window.__probeStartEnabled = load.isStartEnabled();
+        window.__probeLimits = load.getLimitsText();
         load.start();
         return;
       }}
@@ -86,6 +87,7 @@ fn script(port: u16) -> String {
       report({{
         tabs: shell.getTabs().getChildren().map(function (p) {{ return p.getLabel(); }}),
         startEnabled: window.__probeStartEnabled,
+        limits: window.__probeLimits,
         rampEnabled: window.__probeRampEnabled,
         fixed: window.__probeFixed,
         ramp: {{ report: text, steps: load.getStepText(), rows: load.getConnectionRows() }}

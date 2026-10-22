@@ -38,7 +38,7 @@ qx.Class.define("smppclient.Widgets", {
      * of a long form so it fits without scrolling.
      */
     compactGrid() {
-      const layout = new qx.ui.layout.Grid(8, 5);
+      const layout = new qx.ui.layout.Grid(8, 3);
       layout.setColumnFlex(1, 1);
       layout.setColumnFlex(3, 1);
       layout.setColumnAlign(0, "right", "middle");
@@ -181,6 +181,20 @@ qx.Class.define("smppclient.Widgets", {
       const box = new qx.ui.groupbox.GroupBox(title);
       box.setLayout(new qx.ui.layout.VBox(4));
       box.setContentPadding(8, 8, 8, 8);
+      box.add(content, flex ? { flex: flex } : undefined);
+      return box;
+    },
+
+    /**
+     * A group box with the padding pulled in. The load test's panel is three
+     * groups and a split pane deep, and the default padding compounds at
+     * every level until the form crowds out the results.
+     */
+    tightGroup(title, content, flex) {
+      const box = new qx.ui.groupbox.GroupBox(title);
+      box.setLayout(new qx.ui.layout.VBox(2));
+      box.setContentPadding(4, 6, 4, 6);
+      box.setMarginBottom(2);
       box.add(content, flex ? { flex: flex } : undefined);
       return box;
     },

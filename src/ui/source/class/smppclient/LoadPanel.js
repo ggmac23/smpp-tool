@@ -24,8 +24,10 @@ qx.Class.define("smppclient.LoadPanel", {
    * @param submitForm {smppclient.SubmitForm} where the message body comes from
    */
   construct(connectionPanel, submitForm) {
-    super(new qx.ui.layout.VBox(6));
-    this.setPadding(8);
+    // Tight: the table and the report are what the panel is for, and every
+    // pixel the form takes is one they do not get.
+    super(new qx.ui.layout.VBox(4));
+    this.setPadding(6);
 
     this.__api = smppclient.Api.getInstance();
     this.__connectionPanel = connectionPanel;
@@ -64,6 +66,7 @@ qx.Class.define("smppclient.LoadPanel", {
     __progress: null,
     __startButton: null,
     __limitLabel: null,
+    __limitsLabel: null,
     __steps: null,
     __running: false,
 
@@ -115,7 +118,7 @@ qx.Class.define("smppclient.LoadPanel", {
         "latencyP95Ms"
       ].forEach(key => f[key].addListener("changeValue", () => this.__refreshLimits()));
 
-      return smppclient.Widgets.group("Load", grid);
+      return smppclient.Widgets.tightGroup("Load", grid);
     },
 
     __buildActions() {
@@ -128,6 +131,13 @@ qx.Class.define("smppclient.LoadPanel", {
       stop.addListener("execute", () => this.stop());
 
       this.__progress = new qx.ui.basic.Label("");
+
+      // What this build allows, always on screen. Crossing a ceiling and
+      // reading the refusal is a poor way to learn what you may ask for,
+      // and these are this build's numbers, not the protocol's.
+      this.__limitsLabel = new qx.ui.basic.Label("");
+      this.__limitsLabel.setTextColor("#6b6b6b");
+
       this.__limitLabel = new qx.ui.basic.Label("");
       this.__limitLabel.setTextColor("#b03030");
 
@@ -135,7 +145,11 @@ qx.Class.define("smppclient.LoadPanel", {
       box.add(this.__progress);
       box.add(new qx.ui.core.Spacer(), { flex: 1 });
       box.add(this.__limitLabel);
-      return box;
+
+      const wrap = new qx.ui.container.Composite(new qx.ui.layout.VBox(2));
+      wrap.add(box);
+      wrap.add(this.__limitsLabel);
+      return wrap;
     },
 
     /** One row per connection: a balancer that favours one shows up here. */
@@ -148,17 +162,17 @@ qx.Class.define("smppclient.LoadPanel", {
       });
       this.__table.setStatusBarVisible(false);
       this.__table.setMinHeight(140);
-      return smppclient.Widgets.group("Per connection", this.__table, 1);
+      return smppclient.Widgets.tightGroup("Per connection", this.__table, 1);
     },
 
     __buildReport() {
-      const box = new qx.ui.container.Composite(new qx.ui.layout.VBox(6));
+      const box = new qx.ui.container.Composite(new qx.ui.layout.VBox(4));
 
       this.__reportList = smppclient.Widgets.mono("Nothing run yet.");
-      box.add(smppclient.Widgets.group("Report", this.__reportList, 1), { flex: 1 });
+      box.add(smppclient.Widgets.tightGroup("Report", this.__reportList, 1), { flex: 1 });
 
       this.__stepList = smppclient.Widgets.mono("");
-      box.add(smppclient.Widgets.group("Ramp steps", this.__stepList, 1), { flex: 1 });
+      box.add(smppclient.Widgets.tightGroup("Ramp steps", this.__stepList, 1), { flex: 1 });
       return box;
     },
 
@@ -215,7 +229,9 @@ qx.Class.define("smppclient.LoadPanel", {
 
     /** Start is refused, with the limit shown, before a single bind goes out. */
     __refreshLimits() {
-      const check = SmppForms.checkLoadLimits(this.getFormValues());
+      const values = this.getFormValues();
+      const check = SmppForms.checkLoadLimits(values);
+      this.__limitsLabel.setValue(SmppForms.limitsText(values));
       this.__limitLabel.setValue(check.ok ? "" : check.reason);
       this.__startButton.setEnabled(check.ok && !this.__running);
       return check;
@@ -336,6 +352,11 @@ qx.Class.define("smppclient.LoadPanel", {
           ? "No ramp: this was a fixed-rate run."
           : this.__steps.map(s => SmppForms.formatRampStep(s)).join("\n")
       );
+    },
+
+    /** What the ceilings line currently reads, for the checks. */
+    getLimitsText() {
+      return this.__limitsLabel.getValue();
     },
 
     /** What the report pane currently reads, for the checks. */

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   MAX_CONNECTIONS,
+  MAX_RATE_PER_CONNECTION,
+  limitsText,
   LOAD_MODES,
   checkLoadLimits,
   buildLoadMode,
@@ -85,9 +87,9 @@ describe("load-test limits", () => {
   });
 
   it("refuses more messages than the build will hold", () => {
-    const check = checkLoadLimits({ ...FORM, messages: 50001 });
+    const check = checkLoadLimits({ ...FORM, messages: 1000001 });
     expect(check.ok).toBe(false);
-    expect(check.reason).toContain("50000");
+    expect(check.reason).toContain("1,000,000");
   });
 
   it("refuses a rate above what the connections can carry, and says so", () => {
@@ -318,5 +320,36 @@ describe("a ramp's report", () => {
 
   it("keeps calling it the requested rate on a fixed-rate run", () => {
     expect(formatLoadReport(REPORT).map((e) => e.label)).toContain("Requested rate");
+  });
+});
+
+describe("the build's ceilings, written where they can be read", () => {
+  /**
+   * The ceilings used to be discoverable only by crossing one and reading
+   * the refusal. They are this build's numbers rather than the protocol's,
+   * so someone sizing a run has no way to guess them.
+   */
+  it("says how many connections, at what rate each, and how many messages", () => {
+    const text = limitsText(FORM);
+    expect(text).toContain(String(MAX_CONNECTIONS));
+    expect(text).toContain(MAX_RATE_PER_CONNECTION.toLocaleString("en-US"));
+    expect(text).toContain("1,000,000");
+  });
+
+  it("works out what the current connection count is allowed to carry", () => {
+    expect(limitsText({ ...FORM, connections: 4 })).toContain(
+      (MAX_RATE_PER_CONNECTION * 4).toLocaleString("en-US")
+    );
+    expect(limitsText({ ...FORM, connections: 10 })).toContain(
+      (MAX_RATE_PER_CONNECTION * 10).toLocaleString("en-US")
+    );
+  });
+
+  it("groups the digits, because 320000 is hard to read at a glance", () => {
+    expect(limitsText({ ...FORM, connections: MAX_CONNECTIONS })).toContain("320,000");
+  });
+
+  it("says plainly that these are the tester's limits, not the protocol's", () => {
+    expect(limitsText(FORM).toLowerCase()).toContain("this build");
   });
 });

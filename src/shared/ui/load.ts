@@ -9,7 +9,6 @@
  * enforces them again. Checking in the renderer is only so the refusal
  * arrives before a single bind goes out.
  */
-import { MAX_BURST } from "./protocol";
 import type { LimitCheck, StatEntry } from "./stats";
 
 /** Connections this build opens at once. The backend holds the same number. */
@@ -21,6 +20,9 @@ export const MAX_CONNECTIONS = 64;
  * Both numbers are guardrails against a typo, not protocol limits.
  */
 export const MAX_RATE_PER_CONNECTION = 5000;
+
+/** Messages one run may ask for. The backend holds the same number. */
+export const MAX_MESSAGES = 1000000;
 
 export const LOAD_MODES = [
   { label: "Fixed rate", value: "fixed" },
@@ -116,6 +118,29 @@ export interface LoadProgress {
   errors: number;
 }
 
+/** Thousands separated, because 320000 is hard to read at a glance. */
+function grouped(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * What this build allows, in a line.
+ *
+ * The ceilings used to be discoverable only by crossing one and reading the
+ * refusal, which is a poor way to find out what you are allowed to ask for.
+ * They are this build's numbers and not the protocol's, so nobody can guess
+ * them either.
+ */
+export function limitsText(v: LoadFormValues): string {
+  const connections = Math.max(1, Math.min(v.connections || 1, MAX_CONNECTIONS));
+  return (
+    `This build: up to ${MAX_CONNECTIONS} connections, ` +
+    `${grouped(MAX_RATE_PER_CONNECTION)}/s each ` +
+    `(so ${grouped(MAX_RATE_PER_CONNECTION * connections)}/s with ${connections}), ` +
+    `${grouped(MAX_MESSAGES)} messages.`
+  );
+}
+
 function kindOf(modeLabel: string): LoadModeKind {
   const mode = LOAD_MODES.find((m) => m.label === modeLabel);
   return mode ? mode.value : "fixed";
@@ -139,8 +164,10 @@ export function checkLoadLimits(v: LoadFormValues): LimitCheck {
   if (v.messages < 1) {
     return refuse("At least one message.");
   }
-  if (v.messages > MAX_BURST) {
-    return refuse(`${v.messages} messages is above the ${MAX_BURST} this build holds.`);
+  if (v.messages > MAX_MESSAGES) {
+    return refuse(
+      `${grouped(v.messages)} messages is above the ${grouped(MAX_MESSAGES)} this build holds.`
+    );
   }
 
   // The ceiling is per connection, so connections multiply it.
