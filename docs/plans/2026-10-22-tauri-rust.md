@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use the implementation workflow (recommended) or the implementation workflow to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the Electron main process with a Rust backend under Tauri v2, keeping the qooxdoo renderer and every behaviour the Electron build was verified to have.
+**Goal:** Replace the Electron main process with a Rust backend under Tauri v2, keeping the qooxdoo renderer and every behaviour the Electron build was verified to have — plus one new capability the Electron build never had: a multi-connection load test that finds how much throughput an SMSC will take.
 
 **Architecture:** One Rust crate under `src-tauri`. `smpp::*` is the pure protocol layer (codec, text, segmentation, receipts) with no I/O; `app::*` owns the socket, the session, the trace, the burst engine and the profile store; `commands::*` is the Tauri bridge. The renderer is the existing qooxdoo application, served from `compiled/build`, talking to Rust through `invoke` and `listen` instead of a preload bridge. Bytes cross as lowercase hex strings, never binary.
 
@@ -552,6 +552,76 @@ Expected: PASS.
 
 ---
 
+### Task 13b: `app::loadtest` — many connections, and the TPS ceiling
+
+**Files:** Create `src-tauri/src/app/loadtest.rs`
+**New work**, not a port: the TypeScript build has no equivalent.
+
+**Why:** the burst engine answers "how did this message fare". A load test
+answers a different question — "how much can this SMSC take" — and that needs
+several binds at once, because a single session's window is usually the limit
+long before the SMSC is.
+
+**Interfaces:**
+- `LoadTestConfig { connections, messages, mode, template, text, data_coding, segmentation, placement, bind, connect, await_dlr }`
+- `LoadMode::Fixed { rate_per_sec }` — hold a rate and report whether it held.
+- `LoadMode::Ramp { start_rate, step, step_seconds, max_rate, abandon_on }` —
+  climb until the SMSC gives way, then report the last rate it sustained.
+  `abandon_on` names what counts as giving way: an error share above a
+  threshold, or a latency percentile above a ceiling. Without that the ramp
+  has no definition of "cannot take it".
+- `ConnectionStats { index, bound, submitted, accepted, errors_by_status, achieved_rate, latency_p50/p95/p99 }`
+- `LoadReport { requested, achieved_rate_per_sec, sustained_rate_per_sec, messages, pdus, submitted, accepted, errors_by_status, latency_p50/p95/p99, dlr_received, dlr_unmatched, per_connection: Vec<ConnectionStats>, steps: Vec<RampStep>, ended: LoadEndReason }`
+- `LoadRunner::{start, stop, report, progress}`; events `load-progress`, `load-step`, `load-done`.
+
+**Behaviour, carried from what the burst engine learned:**
+- Connections bind in parallel; a connection that fails to bind is reported,
+  not retried, and the test continues on the rest. If none bind, the test ends
+  with `LoadEndReason::NoConnections`.
+- Work is handed to whichever connection has a free window slot, so one slow
+  connection cannot stall the others.
+- The achieved rate is measured over the sending, never including the wait for
+  receipts.
+- Rows are not kept per message — this is a throughput test, not a delivery
+  audit — but every status is counted, and the per-connection breakdown is
+  kept in full.
+- Ceilings: `connections` is capped (16), `messages` at `MAX_BURST`, and the
+  rate at `MAX_RATE` per connection. Over any of them the test refuses out
+  loud with the limit named, before a single bind.
+- A connection dropping mid-test is recorded against that connection and the
+  test carries on; losing them all ends it with `ConnectionsLost`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```rust
+fn binds_every_connection_it_was_asked_for()
+fn reports_a_connection_that_could_not_bind_without_abandoning_the_rest()
+fn spreads_the_messages_across_the_connections()
+fn holds_a_fixed_rate_and_reports_whether_it_held()
+fn climbs_until_the_error_share_breaches_the_threshold()
+fn reports_the_last_sustained_rate_rather_than_the_one_that_broke()
+fn stops_climbing_at_max_rate_even_when_nothing_breaks()
+fn measures_the_achieved_rate_over_the_sending_not_the_wait()
+fn counts_errors_by_status_across_every_connection()
+fn keeps_a_per_connection_breakdown()
+fn refuses_more_connections_than_the_ceiling_before_binding_anything()
+fn ends_with_connections_lost_when_every_bind_drops()
+```
+
+- [ ] **Step 2: Run them to watch them fail**
+
+- [ ] **Step 3: Implement the connection pool**
+
+- [ ] **Step 4: Implement the fixed-rate mode**
+
+- [ ] **Step 5: Implement the ramp and its abandon conditions**
+
+- [ ] **Step 6: Run them to watch them pass**
+
+- [ ] **Step 7: Commit**
+
+---
+
 ### Task 14: `app::profiles`
 
 **Files:** Create `src-tauri/src/app/profiles.rs`
@@ -591,8 +661,9 @@ Expected: PASS.
 
 **Interfaces:**
 - `Controller` owning the transport, session, trace, burst runner and profile store behind a `tokio::sync::Mutex`, held in Tauri state.
-- One `#[tauri::command]` per name in the TypeScript `COMMAND_NAMES`, with the same semantics: `connect`, `disconnect`, `bind`, `unbind`, `send_pdu`, `send_raw`, `start_burst`, `stop_burst`, `trace`, `pdu_fields`, `pdu_hex`, `clear_trace`, `set_trace_cap`, `export_trace`, `export_burst`, `burst_rows`, `list_profiles`, `save_profile`, `remove_profile`, `profile_secrets`, `measure`, `pick_file`, `status`. Plus two the renderer now needs because it no longer builds PDUs: `compose_submit` (form values → the PDUs that would be sent, with warnings) and `preview_pdu` (hex → decoded summary, fields and `sendable`).
+- One `#[tauri::command]` per name in the TypeScript `COMMAND_NAMES`, with the same semantics: `connect`, `disconnect`, `bind`, `unbind`, `send_pdu`, `send_raw`, `start_burst`, `stop_burst`, `trace`, `pdu_fields`, `pdu_hex`, `clear_trace`, `set_trace_cap`, `export_trace`, `export_burst`, `burst_rows`, `list_profiles`, `save_profile`, `remove_profile`, `profile_secrets`, `measure`, `pick_file`, `status`. Plus two the renderer now needs because it no longer builds PDUs: `compose_submit` (form values → the PDUs that would be sent, with warnings) and `preview_pdu` (hex → decoded summary, fields and `sendable`). Plus three for the load test: `start_load_test`, `stop_load_test`, `load_report`.
 - File dialogs come from `tauri-plugin-dialog`, injected behind a trait so the controller's tests do not need a window — the same seam the TypeScript `Dialogs` interface provided.
+- Load-test events: `load-progress`, `load-step`, `load-done`.
 - Events emitted to the webview: `state`, `pdu` (batched), `counters` (batched, latest wins), `burst-progress`, `burst-row` (batched), `burst-done`, `error`. A ~100 ms batching tick; delay is allowed, dropping and reordering are not.
 
 - [ ] **Step 1: Write the failing tests**
