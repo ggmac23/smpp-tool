@@ -1,0 +1,29 @@
+[package]
+name = "smppclient"
+version = "0.1.0"
+edition = "2021"
+description = "Desktop SMPP client for testing SMSCs and aggregators"
+publish = false
+
+[lib]
+name = "smppclient"
+path = "src/lib.rs"
+
+[[bin]]
+name = "smppclient"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["full", "test-util"] }
