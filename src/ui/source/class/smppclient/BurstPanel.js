@@ -128,7 +128,12 @@ qx.Class.define("smppclient.BurstPanel", {
 
     __buildTable() {
       this.__model = new qx.ui.table.model.Simple();
-      this.__model.setColumns(SmppForms.burstColumns(this.__mode));
+      // The ids go with the names. Without them qooxdoo keeps the ids it
+      // already had, and a later change to a different number of columns
+      // throws — which is what binding as a transceiver did, because the
+      // model starts out with the no-receipt column set.
+      const columns = SmppForms.burstColumns(this.__mode);
+      this.__model.setColumns(columns, columns);
 
       this.__table = new qx.ui.table.Table(this.__model, {
         tableColumnModel: obj => new qx.ui.table.columnmodel.Resize(obj)
@@ -153,7 +158,8 @@ qx.Class.define("smppclient.BurstPanel", {
         return;
       }
       this.__mode = mode;
-      this.__model.setColumns(SmppForms.burstColumns(mode));
+      const columns = SmppForms.burstColumns(mode);
+      this.__model.setColumns(columns, columns);
       this.__redrawRows();
     },
 

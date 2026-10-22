@@ -78,13 +78,11 @@ qx.Class.define("smppclient.Api", {
      * stop listening without having to await first.
      */
     on(event, callback) {
-      const bridge = this.bridge();
-      if (!bridge) {
-        return function () {};
-      }
       let stop = null;
       let cancelled = false;
-      bridge
+
+      const attach = bridge => {
+        bridge
         .listen(event, e => callback(e && "payload" in e ? e.payload : e))
         .then(unlisten => {
           if (cancelled) {
@@ -99,6 +97,28 @@ qx.Class.define("smppclient.Api", {
             message: e && e.message ? e.message : String(e)
           });
         });
+      };
+
+      // A panel subscribes while it is being built, which can be before the
+      // bridge exists. Returning a silent no-op would leave that panel deaf
+      // for the life of the window — which is how an empty trace and frozen
+      // counters looked once already — so keep looking until one appears.
+      const bridge = this.bridge();
+      if (bridge) {
+        attach(bridge);
+      } else {
+        const timer = window.setInterval(() => {
+          if (cancelled) {
+            window.clearInterval(timer);
+            return;
+          }
+          const late = this.bridge();
+          if (late) {
+            window.clearInterval(timer);
+            attach(late);
+          }
+        }, 100);
+      }
 
       return function () {
         cancelled = true;

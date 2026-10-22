@@ -1,7 +1,7 @@
 {
-  "name": "smppclient",
+  "name": "smpp-tool",
   "version": "0.1.0",
-  "description": "Desktop SMPP client for testing SMSCs and aggregators",
+  "description": "Desktop SMPP tool for testing SMSCs and SMS aggregators",
   "private": true,
   "scripts": {
     "build": "npm run build:ui",

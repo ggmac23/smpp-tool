@@ -155,7 +155,7 @@ qx.Class.define("smppclient.LoadPanel", {
     /** One row per connection: a balancer that favours one shows up here. */
     __buildTable() {
       this.__model = new qx.ui.table.model.Simple();
-      this.__model.setColumns(SmppForms.CONNECTION_COLUMNS);
+      this.__model.setColumns(SmppForms.CONNECTION_COLUMNS, SmppForms.CONNECTION_COLUMNS);
 
       this.__table = new qx.ui.table.Table(this.__model, {
         tableColumnModel: obj => new qx.ui.table.columnmodel.Resize(obj)

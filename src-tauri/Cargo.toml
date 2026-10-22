@@ -2,7 +2,7 @@
 name = "smppclient"
 version = "0.1.0"
 edition = "2021"
-description = "Desktop SMPP client for testing SMSCs and aggregators"
+description = "Desktop SMPP tool for testing SMSCs and SMS aggregators"
 publish = false
 
 [lib]
@@ -10,7 +10,7 @@ name = "smppclient"
 path = "src/lib.rs"
 
 [[bin]]
-name = "smppclient"
+name = "smpp-tool"
 path = "src/main.rs"
 
 [build-dependencies]

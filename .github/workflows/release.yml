@@ -1,0 +1,105 @@
+# Builds SMPP Tool for macOS, Linux and Windows and attaches the installers
+# to a GitHub release.
+#
+# Each platform builds on its own runner because there is no sensible way to
+# cross-compile this: Tauri needs WebView2 on Windows and webkit2gtk on Linux,
+# and neither is available from a Mac.
+#
+# Triggered by pushing a tag like v0.1.0, or by hand from the Actions tab.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS (Apple silicon)
+          - platform: macos-13
+            target: x86_64-apple-darwin
+            name: macOS (Intel)
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            name: Linux
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: Windows
+
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Linux webview and its build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      # The suite runs on every platform, not only the one that is convenient:
+      # a codec is the kind of thing that can be right on one and wrong on
+      # another.
+      - name: Test
+        run: |
+          npm test
+          cd src-tauri && cargo test --target ${{ matrix.target }}
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.ref_name }}
+          releaseName: SMPP Tool ${{ github.ref_name }}
+          releaseBody: |
+            Desktop SMPP tool for testing SMSCs and SMS aggregators.
+
+            Pick the file for your machine:
+
+            - **macOS, Apple silicon** — the `aarch64.dmg`
+            - **macOS, Intel** — the `x64.dmg`
+            - **Linux** — the `.AppImage` (runs anywhere) or the `.deb`
+            - **Windows** — the `.msi` or the `.exe` installer
+
+            Nothing here is code-signed, so the first launch needs a nudge:
+            on macOS right-click the app and choose Open; on Windows choose
+            "More info" then "Run anyway".
+          releaseDraft: true
+          prerelease: false

@@ -100,7 +100,7 @@ qx.Class.define("smppclient.TracePanel", {
 
     __buildTable() {
       this.__model = new qx.ui.table.model.Simple();
-      this.__model.setColumns(SmppForms.TRACE_COLUMNS);
+      this.__model.setColumns(SmppForms.TRACE_COLUMNS, SmppForms.TRACE_COLUMNS);
 
       this.__table = new qx.ui.table.Table(this.__model, {
         tableColumnModel: obj => new qx.ui.table.columnmodel.Resize(obj)
