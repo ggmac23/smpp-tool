@@ -119,10 +119,23 @@ fn client_config(tls: &TlsOptions) -> Result<rustls::ClientConfig, String> {
         let mut roots = rustls::RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         if let Some(ca) = &tls.ca {
+            let mut added = 0usize;
             for cert in rustls_pemfile::certs(&mut ca.as_slice()).flatten() {
                 roots
                     .add(cert)
                     .map_err(|e| format!("the CA bundle could not be used: {e}"))?;
+                added += 1;
+            }
+            // A DER file, a truncated PEM or a key pasted where a certificate
+            // belongs all parse to nothing. Saying so beats the handshake
+            // failing later with "invalid peer certificate", which sends the
+            // user looking at the wrong end.
+            if added == 0 {
+                return Err(
+                    "the CA bundle held no certificate: it is empty, not PEM, or not a \
+                     certificate at all"
+                        .into(),
+                );
             }
         }
         builder.with_root_certificates(roots)
@@ -281,10 +294,18 @@ fn spawn_io<S>(
     tokio::spawn(async move {
         let mut framer = PduFramer::new();
         let mut buf = vec![0u8; 16384];
+        let mut reason: Option<String> = None;
 
         loop {
             let read = match reader.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
+                Ok(0) => break,
+                Err(e) => {
+                    // An ECONNRESET, a TLS alert and a clean FIN are
+                    // different facts about the SMSC, and for a diagnostic
+                    // tool the difference is most of the value.
+                    reason = Some(e.to_string());
+                    break;
+                }
                 Ok(n) => n,
             };
             let _ = events.send(TransportEvent::BytesIn(read));
@@ -314,7 +335,7 @@ fn spawn_io<S>(
         }
 
         if connected.swap(false, Ordering::SeqCst) {
-            let _ = events.send(TransportEvent::Closed(None));
+            let _ = events.send(TransportEvent::Closed(reason));
         }
     });
 }
@@ -450,6 +471,26 @@ mod tests {
         until(|| transport.pending().buffered == 20).await;
 
         assert_eq!(transport.pending().declared, Some(whole.len() as u32));
+    }
+
+    #[tokio::test]
+    async fn refuses_a_ca_bundle_that_holds_no_certificate() {
+        // A DER file, a truncated PEM, or a private key pasted where a
+        // certificate belongs: all parse to nothing, and the handshake then
+        // fails with "invalid peer certificate", which sends the user looking
+        // at the wrong end.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let mut tls = plain();
+        tls.enabled = true;
+        tls.reject_unauthorized = true;
+        tls.ca = Some(b"-----BEGIN PRIVATE KEY-----\nnotacert\n".to_vec());
+
+        let err = Transport::connect(opts(port, tls)).await.unwrap_err();
+        assert!(
+            err.contains("no certificate"),
+            "the refusal must name what was wrong with the bundle: {err}"
+        );
     }
 
     #[tokio::test]

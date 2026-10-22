@@ -458,12 +458,20 @@ impl BurstRunner {
                 Err(e) => {
                     // A timeout or a lost connection: recorded, never retried
                     // behind the user's back.
-                    let name = if e.to_lowercase().contains("timed out") {
+                    let timed_out = e.to_lowercase().contains("timed out");
+                    let name = if timed_out {
                         "TIMEOUT"
                     } else {
                         "CONNECTION_LOST"
                     };
                     let mut state = self.state.lock().unwrap();
+                    // A bind lost while the tail of the burst was still in
+                    // flight used to be reported as a clean completion,
+                    // because only the pacing loop's pre-tick check set this.
+                    if !timed_out {
+                        state.lost_connection = true;
+                        state.stopping = true;
+                    }
                     *state.errors.entry(name.to_string()).or_insert(0) += 1;
                     state.submitted += 1;
                     if let Some(row) = state.rows.iter_mut().find(|r| r.id == row_id) {
@@ -696,6 +704,36 @@ mod tests {
             spread >= Duration::from_millis(600),
             "the submits arrived within {spread:?} of each other, so nothing was paced"
         );
+    }
+
+    #[tokio::test]
+    async fn says_the_connection_was_lost_even_when_it_goes_in_the_tail() {
+        // The pacing loop hands out all the work and then drains. A bind lost
+        // during that drain used to be reported as Complete, because only the
+        // loop's pre-tick check set the flag — so the verdict said the burst
+        // finished while every row underneath it read CONNECTION_LOST.
+        let smsc = FakeSmsc::new();
+        // The SMSC answers nothing, so every send is still in flight when the
+        // loop has finished handing them out.
+        smsc.on("submit_sm", |_| None);
+        let (session, events) = bound(&smsc, 50).await;
+        let runner = runner_for(session, events);
+
+        let killer = smsc.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            killer.drop_connections();
+        });
+
+        let done = runner
+            .start(BurstConfig {
+                await_dlr: Duration::ZERO,
+                ..config(20, 500)
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(done.reason, BurstDoneReason::ConnectionLost);
     }
 
     #[tokio::test]

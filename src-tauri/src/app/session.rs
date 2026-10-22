@@ -464,6 +464,11 @@ fn answer(
         "unbind" => {
             reply(events);
             set_state(inner, events, BindState::Closed, None);
+            // And close the socket. Answering but leaving it open keeps the
+            // reader, the writer and the file descriptor alive, and lets a
+            // parked send go out onto a session the UI already shows as
+            // closed.
+            transport.shutdown();
         }
         // Defined with no response.
         "alert_notification" => {}
@@ -571,6 +576,23 @@ mod tests {
             );
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
+    }
+
+    #[tokio::test]
+    async fn an_inbound_unbind_closes_the_socket_as_well_as_the_session() {
+        // Answering and then leaving the socket open keeps the reader and
+        // writer tasks and the file descriptor alive, and lets a parked send
+        // go out onto a session the UI already shows as closed.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let (session, _events) = open(port, 10, 500).await;
+        session.bind(bind_opts()).await.unwrap();
+        smsc.wait_for_connection().await;
+
+        smsc.send(PduInput::new(id("unbind"), 77));
+
+        until(|| session.state() == BindState::Closed).await;
+        until(|| !session.is_connected()).await;
     }
 
     #[tokio::test]

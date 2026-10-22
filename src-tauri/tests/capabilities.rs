@@ -36,20 +36,39 @@ fn permissions() -> Vec<String> {
 fn the_webview_may_listen_for_events() {
     let granted = permissions();
     assert!(
-        granted
-            .iter()
-            .any(|p| p == "core:default" || p == "core:event:default"),
+        granted.iter().any(|p| {
+            p == "core:default" || p == "core:event:default" || p == "core:event:allow-listen"
+        }),
         "nothing grants event:listen, so no event would ever reach the renderer: {granted:?}"
     );
 }
 
 #[test]
-fn the_file_dialogs_are_allowed() {
+fn the_renderer_cannot_emit_events_of_its_own() {
+    // The renderer reads a trace, a burst result and a load report. If it
+    // could emit those events it could forge them, and this tool's whole
+    // output is evidence.
     let granted = permissions();
     assert!(
-        granted.iter().any(|p| p.starts_with("dialog:")),
-        "export and pick-file open a dialog, which needs its own permission: {granted:?}"
+        !granted
+            .iter()
+            .any(|p| p == "core:default" || p.contains("emit")),
+        "nothing may grant the webview the ability to emit: {granted:?}"
     );
+}
+
+#[test]
+fn grants_nothing_for_menus_trays_or_reading_files() {
+    // The dialogs are opened from Rust, so the webview needs no dialog
+    // grant; the app has no menu and no tray; and `image:allow-from-path`
+    // would hand the renderer a way to read any file on disk.
+    let granted = permissions();
+    for unwanted in ["dialog:", "core:menu", "core:tray", "core:image"] {
+        assert!(
+            !granted.iter().any(|p| p.starts_with(unwanted)),
+            "{unwanted} is granted and nothing here uses it: {granted:?}"
+        );
+    }
 }
 
 #[test]
