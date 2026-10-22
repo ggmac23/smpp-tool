@@ -2,8 +2,8 @@
 //!
 //! These read the configuration rather than building, so they run in a second
 //! and fail the moment someone adds a resource that should not ship. The
-//! actual build is checked by hand and recorded in the ledger, because it
-//! takes minutes and needs a Mac.
+//! build itself is checked by the release workflow, which runs on all four
+//! runners because a bundle is the one thing that cannot be cross-compiled.
 
 use std::path::Path;
 
@@ -13,29 +13,52 @@ fn config() -> serde_json::Value {
 }
 
 #[test]
-fn bundles_for_macos_without_signing() {
+fn bundles_for_every_platform_the_release_builds_for() {
+    // This test used to assert the targets were `app` and `dmg`, which is to
+    // say it asserted the bug: the release workflow builds on four runners,
+    // and on two of them the bundler produced nothing at all, so the build
+    // went green and the installers never existed. A target list is a list of
+    // the platforms this is actually released for.
     let cfg = config();
     let bundle = &cfg["bundle"];
-
     assert_eq!(bundle["active"], true, "the bundle must be switched on");
 
-    let targets: Vec<&str> = bundle["targets"]
-        .as_array()
-        .expect("bundle.targets must be a list")
-        .iter()
-        .map(|t| t.as_str().unwrap_or_default())
-        .collect();
-    assert!(
-        targets.contains(&"app"),
-        "a .app is what gets launched: {targets:?}"
-    );
-    assert!(
-        targets.contains(&"dmg"),
-        "a .dmg is what gets handed to someone: {targets:?}"
-    );
+    let workflow = std::fs::read_to_string("../.github/workflows/release.yml")
+        .expect("the release workflow says which platforms are built for");
 
+    let formats: &[(&str, &str, &[&str])] = &[
+        ("macos-", "macOS", &["app", "dmg"]),
+        ("ubuntu-", "Linux", &["deb", "rpm", "appimage"]),
+        ("windows-", "Windows", &["msi", "nsis"]),
+    ];
+
+    for (runner, platform, wanted) in formats {
+        if !workflow.contains(runner) {
+            continue;
+        }
+        let covered = match &bundle["targets"] {
+            serde_json::Value::String(s) => s == "all",
+            serde_json::Value::Array(list) => list
+                .iter()
+                .filter_map(|t| t.as_str())
+                .any(|t| wanted.contains(&t)),
+            other => panic!("bundle.targets must be \"all\" or a list, not {other}"),
+        };
+        assert!(
+            covered,
+            "the release builds on {runner}* for {platform}, and {} bundles \
+             nothing there — that job produces an executable and no installer",
+            bundle["targets"]
+        );
+    }
+}
+
+#[test]
+fn pins_no_signing_identity() {
     // Signing is the user's to arrange with their own certificate. A pinned
     // identity here would fail the build on every other machine.
+    let cfg = config();
+    let bundle = &cfg["bundle"];
     assert!(
         bundle["macOS"]["signingIdentity"].is_null(),
         "no signing identity may be pinned in the repository"
