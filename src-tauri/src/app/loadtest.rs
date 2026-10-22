@@ -240,10 +240,19 @@ impl Tally {
     }
 }
 
-fn percentile(sorted: &[u64], p: usize) -> u64 {
-    if sorted.is_empty() {
+/// The latency at a percentile, from latencies in any order.
+///
+/// It sorts what it is given rather than trusting the caller to have sorted
+/// first. That trust was misplaced exactly once — the per-connection
+/// breakdown handed it the latencies in the order the responses arrived — and
+/// the result was a p95 below its own p50 on screen, a number that cannot
+/// happen and so is read as something else going wrong.
+fn percentile(latencies: &[u64], p: usize) -> u64 {
+    if latencies.is_empty() {
         return 0;
     }
+    let mut sorted = latencies.to_vec();
+    sorted.sort_unstable();
     let index = ((p * sorted.len()).div_ceil(100))
         .saturating_sub(1)
         .min(sorted.len() - 1);
@@ -1442,6 +1451,26 @@ mod tests {
         assert_eq!(report.submitted, 20);
         assert_eq!(report.accepted, 10);
         assert_eq!(report.errors_by_status.get("ESME_RTHROTTLED"), Some(&10));
+    }
+
+    #[test]
+    fn a_percentile_does_not_depend_on_the_order_it_is_given() {
+        // Latencies arrive in the order the responses came back, which is not
+        // the order they need to be in to be read off at a percentile. A
+        // percentile that quietly trusts its caller to have sorted first is a
+        // percentile that will one day be asked the wrong question and answer
+        // it: the per-connection breakdown reported a p95 below its own p50,
+        // a number that cannot exist, to anyone reading that panel.
+        let ordered = [10u64, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+        let arrival = [60u64, 10, 100, 30, 80, 20, 90, 40, 70, 50];
+        for p in [50, 95, 99] {
+            assert_eq!(
+                percentile(&arrival, p),
+                percentile(&ordered, p),
+                "p{p} changed when the same latencies arrived in another order"
+            );
+        }
+        assert!(percentile(&arrival, 95) >= percentile(&arrival, 50));
     }
 
     #[tokio::test]
