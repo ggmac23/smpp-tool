@@ -3,7 +3,7 @@
 A desktop SMPP client for testing SMSCs and SMS aggregators. It sends what you
 type, shows what came back, and never tidies either up.
 
-![The main window: the connection panel on the left with live counters, a submit_sm form in the centre, and the trace along the bottom with a PDU selected, its hex and its decoded fields](docs/screenshots/main.jpg)
+![The main window: the connection panel on the left with live counters, a submit_sm form in the centre, and the trace along the bottom with a PDU selected, its hex and its decoded fields](docs/screenshots/main.png)
 
 Rust backend, [Tauri](https://tauri.app) shell, [qooxdoo](https://qooxdoo.org)
 interface. The macOS build is 19 MB.
@@ -56,7 +56,7 @@ The report leads with the rate it sustained — which is a different number from
 the rate you asked for and from the rate you achieved, and the only one that
 answers "what does this thing take".
 
-![The load test: a ramp from 5000 to 12000 a second, the per-connection table, and the report showing where it gave way](docs/screenshots/load-test.jpg)
+![The load test: a ramp from 5000 to 12000 a second, the per-connection table, and the report showing where it gave way](docs/screenshots/load-test.png)
 
 **TLS**, with your own CA and client certificate, or with verification off for
 a server whose certificate you do not have.
@@ -64,7 +64,7 @@ a server whose certificate you do not have.
 **A flow diagram**, one arrow per PDU with both time offsets, for showing
 somebody what happened.
 
-![The flow diagram: one arrow per PDU between ESME and SMSC, with the offset from the first PDU and from the previous one](docs/screenshots/flow.jpg)
+![The flow diagram: one arrow per PDU between ESME and SMSC, with the offset from the first PDU and from the previous one](docs/screenshots/flow.png)
 
 ## Install
 
@@ -136,6 +136,13 @@ sustained: 7000/sec
 
 That server returned no error at any rate, up to 16000/sec. The latency is
 what told the truth — which is why the ramp watches both.
+
+## The screenshots
+
+`tools/screenshots.sh` regenerates them: it serves the built interface, fills
+it with plausible traffic through the same stand-in-bridge seam the tests use,
+and captures each view with headless Chrome. Nothing in them is drawn by hand,
+and nothing touches a socket.
 
 ## Layout
 
