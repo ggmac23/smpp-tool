@@ -2,7 +2,8 @@
 //!
 //!   cargo run --release --example real_smsc_ramp -- \
 //!     <host> <port> <system_id> <password> \
-//!     [connections] [start/s] [step/s] [max/s] [step_secs] [messages] [window]
+//!     [connections] [start/s] [step/s] [max/s] [step_secs] [messages] [window] \
+//!     [error%] [p95_ms]
 //!
 //! Defaults climb gently. Raise them deliberately: this sends real traffic to
 //! somebody's server.
@@ -35,13 +36,15 @@ async fn main() {
     let step_secs: u64 = arg(&args, 9, 2);
     let messages: usize = arg(&args, 10, 900);
     let window: usize = arg(&args, 11, 50);
+    let error_percent: f64 = arg(&args, 12, 2.0);
+    let latency_p95_ms: u64 = arg(&args, 13, 2500);
 
     println!(
         "ramping {start_rate} -> {max_rate}/sec in steps of {step}, {step_secs}s each,\n\
          over {connections} connection(s) with a window of {window}, \
          up to {messages} messages"
     );
-    println!("giving way at 2% errors or a p95 above 2500ms\n");
+    println!("giving way at {error_percent}% errors or a p95 above {latency_p95_ms}ms\n");
 
     let report = LoadRunner::new()
         .start(LoadTestConfig {
@@ -66,8 +69,8 @@ async fn main() {
                 step_duration: Duration::from_secs(step_secs),
                 max_rate,
                 abandon_on: AbandonOn {
-                    error_share: 0.02,
-                    latency_p95_ms: 2500,
+                    error_share: error_percent / 100.0,
+                    latency_p95_ms,
                 },
             },
             window_size: window,
