@@ -3,6 +3,7 @@
 
 pub mod burst;
 pub mod compose;
+pub mod controller;
 pub mod dlr;
 pub mod events;
 pub mod export;

@@ -8,11 +8,14 @@
 use indexmap::IndexMap;
 
 use crate::app::dlr::CorrelationConfig;
+use crate::app::loadtest::LoadMode;
+use crate::app::recipients::RecipientSource;
 use crate::app::session::{BindMode, BindState};
 use crate::app::trace::{Direction, TraceEntry};
 use crate::smpp::constants::command_status_name;
 use crate::smpp::decode::{DestEntry, FieldValue};
 use crate::smpp::encode::PduInput;
+use crate::smpp::segment::BodyPlacement;
 use crate::smpp::summary::DescribedField;
 use crate::smpp::text::{Gsm7Packing, SegmentationMode};
 use crate::smpp::tlv::Tlv;
@@ -182,6 +185,55 @@ pub struct StatusReport {
     pub pending_buffered: usize,
     pub pending_declared: Option<u32>,
     pub inflight: usize,
+}
+
+/// A burst as the renderer configures it. The body is composed here, from
+/// `text` and the segmentation options, not in the renderer.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartBurstRequest {
+    pub recipients: RecipientSource,
+    pub rate_per_sec: u32,
+    pub template: SendPduRequest,
+    #[serde(default)]
+    pub text: String,
+    pub data_coding: u8,
+    #[serde(default)]
+    pub segmentation: SegmentationMode,
+    #[serde(default)]
+    pub placement: BodyPlacement,
+    #[serde(default)]
+    pub packing: Gsm7Packing,
+    #[serde(default)]
+    pub backoff_on_throttle: bool,
+    /// How long to keep waiting for delivery receipts after the last submit.
+    #[serde(default)]
+    pub await_dlr_ms: u64,
+}
+
+/// A load test as the renderer configures it. It carries its own connection
+/// and bind details: the load test opens its own sockets rather than borrowing
+/// the session the user is inspecting.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartLoadRequest {
+    pub connect: ConnectRequest,
+    pub bind: BindRequest,
+    pub connections: usize,
+    pub messages: usize,
+    pub mode: LoadMode,
+    pub template: SendPduRequest,
+    #[serde(default)]
+    pub destination: String,
+    #[serde(default)]
+    pub text: String,
+    pub data_coding: u8,
+    #[serde(default)]
+    pub segmentation: SegmentationMode,
+    #[serde(default)]
+    pub placement: BodyPlacement,
+    #[serde(default)]
+    pub packing: Gsm7Packing,
 }
 
 /// Strips everything that is not a hex digit, so a user may type `0x`,

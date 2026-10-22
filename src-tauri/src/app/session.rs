@@ -169,12 +169,27 @@ impl Session {
         self.inner.lock().unwrap().inflight.len()
     }
 
-    pub fn set_next_sequence_for_test(&self, n: u32) {
-        self.inner.lock().unwrap().next_sequence = n;
+    /// Whether the socket is still up. A bind the SMSC has dropped must not
+    /// keep looking bound.
+    pub fn is_connected(&self) -> bool {
+        self.transport.is_connected()
     }
 
-    pub fn shutdown_transport_for_test(&self) {
+    /// What the framer is holding: bytes buffered, and the length the pending
+    /// PDU claims. Without this a stalled `command_length` is invisible.
+    pub fn framer_pending(&self) -> crate::smpp::frame::Pending {
+        self.transport.pending()
+    }
+
+    /// Closes the socket. The dispatch task notices and announces the close,
+    /// which fails every in-flight and parked send: nothing is retried and
+    /// nothing reconnects behind the user's back.
+    pub fn disconnect(&self) {
         self.transport.shutdown();
+    }
+
+    pub fn set_next_sequence_for_test(&self, n: u32) {
+        self.inner.lock().unwrap().next_sequence = n;
     }
 
     pub async fn bind(&self, opts: BindOptions) -> Result<Pdu, String> {
@@ -559,6 +574,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn disconnecting_closes_the_socket_and_tells_the_renderer() {
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let (session, mut events) = open(port, 10, 500).await;
+        session.bind(bind_opts()).await.unwrap();
+        assert!(session.is_connected());
+
+        session.disconnect();
+
+        until(|| !session.is_connected()).await;
+        // Closed, not Unbound: the socket is gone, which is a different thing
+        // from a session that has not bound yet, and nothing reconnects.
+        assert_eq!(session.state(), BindState::Closed);
+        let mut saw_closed = false;
+        while let Ok(event) = events.try_recv() {
+            if let SessionEvent::State { state, .. } = event {
+                saw_closed = state == BindState::Closed;
+            }
+        }
+        assert!(saw_closed, "the disconnect was never announced");
+    }
+
+    #[tokio::test]
+    async fn reports_what_the_framer_is_holding() {
+        // A PDU that declares more than it sends must not stall invisibly.
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let (session, _events) = open(port, 10, 500).await;
+        assert_eq!(session.framer_pending().buffered, 0);
+        assert_eq!(session.framer_pending().declared, None);
+
+        smsc.wait_for_connection().await;
+        // A header declaring 0x40 bytes, with only 20 sent.
+        let mut partial = vec![0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x15];
+        partial.extend_from_slice(&[0u8; 12]);
+        smsc.send_raw(&partial);
+
+        until(|| session.framer_pending().buffered == 20).await;
+        assert_eq!(
+            session.framer_pending().declared,
+            Some(0x40),
+            "the stalled length must be visible once the header is whole"
+        );
+    }
+
+    #[tokio::test]
     async fn binds_as_transceiver_and_reports_state_bound() {
         let smsc = FakeSmsc::new();
         let port = smsc.listen().await;
@@ -833,7 +894,7 @@ mod tests {
         let (session, _events) = open(port, 10, 2000).await;
         session.bind(bind_opts()).await.unwrap();
 
-        session.shutdown_transport_for_test();
+        session.disconnect();
         until(|| session.state() == BindState::Closed).await;
 
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -929,7 +990,7 @@ mod tests {
         }
 
         until(|| smsc.received().len() >= 3).await;
-        session.shutdown_transport_for_test();
+        session.disconnect();
 
         for handle in sends {
             let err = handle.await.unwrap().unwrap_err();

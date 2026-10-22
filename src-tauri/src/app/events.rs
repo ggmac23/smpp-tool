@@ -41,16 +41,14 @@ impl EventHub {
         }
     }
 
-    /// Start the flush tick. Held by the caller; dropping the handle stops it.
-    pub fn start(hub: &Arc<Self>, every: Duration) -> tokio::task::JoinHandle<()> {
-        let hub = hub.clone();
-        tokio::spawn(async move {
-            let mut tick = tokio::time::interval(every);
-            loop {
-                tick.tick().await;
-                hub.flush();
-            }
-        })
+    /// The flush tick. Spawned once at start-up; it never returns, so the
+    /// caller owns the task and drops it when the app goes away.
+    pub async fn flush_loop(self: Arc<Self>, every: Duration) {
+        let mut tick = tokio::time::interval(every);
+        loop {
+            tick.tick().await;
+            self.flush();
+        }
     }
 
     pub fn push_pdu(&self, pdu: WirePdu) {
@@ -192,6 +190,22 @@ mod tests {
 
     fn counters(sent: u64) -> BTreeMap<String, Counter> {
         BTreeMap::from([("submit_sm".to_string(), Counter { sent, received: 0 })])
+    }
+
+    #[tokio::test]
+    async fn flushes_on_its_own_tick_without_being_asked() {
+        let rec = Arc::new(Recorder::default());
+        let hub = Arc::new(EventHub::new(rec.clone()));
+        let pump = tokio::spawn(hub.clone().flush_loop(Duration::from_millis(10)));
+
+        hub.push_pdu(pdu(1));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while rec.names().is_empty() {
+            assert!(std::time::Instant::now() < deadline, "the tick never fired");
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(rec.names(), vec!["pdu"]);
+        pump.abort();
     }
 
     #[test]

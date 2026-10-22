@@ -10,6 +10,7 @@
 //! Tauri commands and receives events; bytes cross as lowercase hex strings.
 
 pub mod app;
+pub mod commands;
 pub mod smpp;
 pub mod testing;
 
@@ -18,6 +19,11 @@ pub mod testing;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            commands::install(&tauri::Manager::app_handle(app).clone())?;
+            Ok(())
+        })
+        .invoke_handler(commands::handler())
         .run(tauri::generate_context!())
         .expect("the SMPP client failed to start");
 }

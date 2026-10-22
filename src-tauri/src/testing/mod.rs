@@ -6,4 +6,6 @@
 pub mod bytes;
 pub mod fake_smsc;
 #[cfg(test)]
+pub mod recorder;
+#[cfg(test)]
 pub mod tmp;
