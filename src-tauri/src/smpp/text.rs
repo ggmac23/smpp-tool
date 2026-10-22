@@ -28,13 +28,12 @@ pub const GSM_ESCAPE: u8 = 0x1b;
 
 /// GSM 03.38 default alphabet, index = septet value.
 const GSM_BASIC: [char; 128] = [
-    '@', '£', '$', '¥', 'è', 'é', 'ù', 'ì', 'ò', 'Ç', '\n', 'Ø', 'ø', '\r', 'Å', 'å',
-    'Δ', '_', 'Φ', 'Γ', 'Λ', 'Ω', 'Π', 'Ψ', 'Σ', 'Θ', 'Ξ', '\u{1b}', 'Æ', 'æ', 'ß', 'É',
-    ' ', '!', '"', '#', '¤', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '<', '=', '>', '?',
-    '¡', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
-    'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'Ä', 'Ö', 'Ñ', 'Ü', '§',
-    '¿', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
+    '@', '£', '$', '¥', 'è', 'é', 'ù', 'ì', 'ò', 'Ç', '\n', 'Ø', 'ø', '\r', 'Å', 'å', 'Δ', '_',
+    'Φ', 'Γ', 'Λ', 'Ω', 'Π', 'Ψ', 'Σ', 'Θ', 'Ξ', '\u{1b}', 'Æ', 'æ', 'ß', 'É', ' ', '!', '"', '#',
+    '¤', '%', '&', '\'', '(', ')', '*', '+', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6',
+    '7', '8', '9', ':', ';', '<', '=', '>', '?', '¡', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I',
+    'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'Ä', 'Ö',
+    'Ñ', 'Ü', '§', '¿', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o',
     'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'ä', 'ö', 'ñ', 'ü', 'à',
 ];
 
@@ -55,7 +54,11 @@ const GSM_EXT: &[(char, u8)] = &[
 fn gsm_basic_septet(ch: char) -> Option<u8> {
     GSM_BASIC.iter().position(|c| *c == ch).and_then(|i| {
         // The escape marker is not a character in its own right.
-        if i as u8 == GSM_ESCAPE { None } else { Some(i as u8) }
+        if i as u8 == GSM_ESCAPE {
+            None
+        } else {
+            Some(i as u8)
+        }
     })
 }
 
@@ -242,7 +245,9 @@ pub fn decode_text(bytes: &[u8], data_coding: u8, packing: Gsm7Packing) -> Strin
 
     if data_coding == DataCoding::UCS2 {
         let units: Vec<u16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_be_bytes([c[0], c[1]]))
             .collect();
         return String::from_utf16_lossy(&units);
@@ -406,7 +411,9 @@ mod tests {
     #[test]
     fn defaults_to_unpacked_which_is_what_smscs_expect() {
         assert_eq!(
-            encode_text(&a(160), DataCoding::GSM_DEFAULT, Gsm7Packing::default()).bytes.len(),
+            encode_text(&a(160), DataCoding::GSM_DEFAULT, Gsm7Packing::default())
+                .bytes
+                .len(),
             160
         );
     }
@@ -415,20 +422,31 @@ mod tests {
     fn round_trips_packed_gsm7() {
         let text = "Hello @£$¥ world";
         let r = encode_text(text, DataCoding::GSM_DEFAULT, Gsm7Packing::Packed);
-        assert_eq!(decode_text(&r.bytes, DataCoding::GSM_DEFAULT, Gsm7Packing::Packed), text);
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::GSM_DEFAULT, Gsm7Packing::Packed),
+            text
+        );
     }
 
     #[test]
     fn round_trips_unpacked_gsm7() {
         let text = "Hello Ä Ö Ñ Ü à";
         let r = encode_text(text, DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked);
-        assert_eq!(decode_text(&r.bytes, DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked), text);
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked),
+            text
+        );
     }
 
     #[test]
     fn counts_an_escape_table_character_as_two_septets() {
         assert_eq!(septets_for("€").len(), 2);
-        let m = measure("€", DataCoding::GSM_DEFAULT, SegmentationMode::Udh, Gsm7Packing::Unpacked);
+        let m = measure(
+            "€",
+            DataCoding::GSM_DEFAULT,
+            SegmentationMode::Udh,
+            Gsm7Packing::Unpacked,
+        );
         assert_eq!(m.chars, 1);
         assert_eq!(m.bits, 14);
     }
@@ -436,7 +454,11 @@ mod tests {
     #[test]
     fn encodes_every_escape_table_character() {
         for ch in "^{}\\[~]|€".chars() {
-            let r = encode_text(&ch.to_string(), DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked);
+            let r = encode_text(
+                &ch.to_string(),
+                DataCoding::GSM_DEFAULT,
+                Gsm7Packing::Unpacked,
+            );
             assert!(r.unmappable.is_empty(), "{ch} reported unmappable");
             assert_eq!(r.bytes.len(), 2, "{ch} did not cost two septets");
             assert_eq!(r.bytes[0], 0x1b, "{ch} did not start with ESC");
@@ -453,7 +475,10 @@ mod tests {
     fn round_trips_ucs2_including_an_emoji() {
         let text = "ciao 🙂";
         let r = encode_text(text, DataCoding::UCS2, Gsm7Packing::Unpacked);
-        assert_eq!(decode_text(&r.bytes, DataCoding::UCS2, Gsm7Packing::Unpacked), text);
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::UCS2, Gsm7Packing::Unpacked),
+            text
+        );
     }
 
     #[test]
@@ -473,21 +498,30 @@ mod tests {
     fn encodes_cyrillic() {
         let r = encode_text("Привет", DataCoding::CYRILLIC, Gsm7Packing::Unpacked);
         assert!(r.unmappable.is_empty());
-        assert_eq!(decode_text(&r.bytes, DataCoding::CYRILLIC, Gsm7Packing::Unpacked), "Привет");
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::CYRILLIC, Gsm7Packing::Unpacked),
+            "Привет"
+        );
     }
 
     #[test]
     fn encodes_latin_hebrew() {
         let r = encode_text("שלום", DataCoding::LATIN_HEBREW, Gsm7Packing::Unpacked);
         assert!(r.unmappable.is_empty());
-        assert_eq!(decode_text(&r.bytes, DataCoding::LATIN_HEBREW, Gsm7Packing::Unpacked), "שלום");
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::LATIN_HEBREW, Gsm7Packing::Unpacked),
+            "שלום"
+        );
     }
 
     #[test]
     fn encodes_jis() {
         let r = encode_text("こんにちは", DataCoding::JIS, Gsm7Packing::Unpacked);
         assert!(r.unmappable.is_empty());
-        assert_eq!(decode_text(&r.bytes, DataCoding::JIS, Gsm7Packing::Unpacked), "こんにちは");
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::JIS, Gsm7Packing::Unpacked),
+            "こんにちは"
+        );
     }
 
     fn parts(text: &str, dc: u8) -> usize {
@@ -508,19 +542,34 @@ mod tests {
 
     #[test]
     fn reports_one_part_in_none_mode_however_long_the_text_is() {
-        let m = measure(&a(1000), DataCoding::GSM_DEFAULT, SegmentationMode::None, Gsm7Packing::Unpacked);
+        let m = measure(
+            &a(1000),
+            DataCoding::GSM_DEFAULT,
+            SegmentationMode::None,
+            Gsm7Packing::Unpacked,
+        );
         assert_eq!(m.parts, 1);
     }
 
     #[test]
     fn reports_chars_bits_and_bytes_for_unpacked_gsm7() {
-        let m = measure("hello", DataCoding::GSM_DEFAULT, SegmentationMode::Udh, Gsm7Packing::Unpacked);
+        let m = measure(
+            "hello",
+            DataCoding::GSM_DEFAULT,
+            SegmentationMode::Udh,
+            Gsm7Packing::Unpacked,
+        );
         assert_eq!((m.chars, m.bits, m.bytes), (5, 35, 5));
     }
 
     #[test]
     fn reports_the_packed_byte_count_when_packing_is_packed() {
-        let m = measure(&a(160), DataCoding::GSM_DEFAULT, SegmentationMode::Udh, Gsm7Packing::Packed);
+        let m = measure(
+            &a(160),
+            DataCoding::GSM_DEFAULT,
+            SegmentationMode::Udh,
+            Gsm7Packing::Packed,
+        );
         assert_eq!(m.bytes, 140);
     }
 
@@ -534,7 +583,12 @@ mod tests {
 
     #[test]
     fn counts_an_emoji_as_one_character_but_two_ucs2_code_units() {
-        let m = measure("🙂", DataCoding::UCS2, SegmentationMode::Udh, Gsm7Packing::Unpacked);
+        let m = measure(
+            "🙂",
+            DataCoding::UCS2,
+            SegmentationMode::Udh,
+            Gsm7Packing::Unpacked,
+        );
         assert_eq!(m.chars, 1);
         assert_eq!(m.bytes, 4);
     }
@@ -549,7 +603,10 @@ mod tests {
     #[test]
     fn substitutes_a_question_mark_for_an_unmappable_character() {
         let r = encode_text("hi 🙂", DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked);
-        assert_eq!(decode_text(&r.bytes, DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked), "hi ?");
+        assert_eq!(
+            decode_text(&r.bytes, DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked),
+            "hi ?"
+        );
     }
 
     #[test]
@@ -560,7 +617,12 @@ mod tests {
 
     #[test]
     fn reports_unmappable_characters_from_measure_too() {
-        let m = measure("hi 🙂", DataCoding::GSM_DEFAULT, SegmentationMode::Udh, Gsm7Packing::Unpacked);
+        let m = measure(
+            "hi 🙂",
+            DataCoding::GSM_DEFAULT,
+            SegmentationMode::Udh,
+            Gsm7Packing::Unpacked,
+        );
         assert_eq!(m.unmappable, vec!["🙂".to_string()]);
     }
 
@@ -592,7 +654,11 @@ mod tests {
             (SAMPLES.ucs2_3, DataCoding::UCS2),
         ] {
             let r = encode_text(text, dc, Gsm7Packing::Unpacked);
-            assert!(r.unmappable.is_empty(), "unmappable in a preset: {:?}", r.unmappable);
+            assert!(
+                r.unmappable.is_empty(),
+                "unmappable in a preset: {:?}",
+                r.unmappable
+            );
         }
     }
 }

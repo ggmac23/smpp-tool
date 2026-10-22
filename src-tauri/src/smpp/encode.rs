@@ -9,7 +9,7 @@
 use indexmap::IndexMap;
 
 use crate::smpp::constants::{command_name, PDU_HEADER_LENGTH};
-use crate::smpp::decode::{DestEntry, FieldValue, UnsuccessEntry};
+use crate::smpp::decode::{DestEntry, FieldValue};
 use crate::smpp::defs::{fields_for, FieldType};
 use crate::smpp::tlv::{encode_tlvs, Tlv};
 
@@ -50,7 +50,8 @@ impl PduInput {
     }
 
     pub fn with_bytes(mut self, name: &str, value: Vec<u8>) -> Self {
-        self.fields.insert(name.to_string(), FieldValue::Bytes(value));
+        self.fields
+            .insert(name.to_string(), FieldValue::Bytes(value));
         self
     }
 
@@ -266,7 +267,10 @@ mod tests {
     #[test]
     fn writes_a_data_coding_outside_the_spec_range_verbatim() {
         let buf = encode_pdu(&submit().with_num("data_coding", 0xff));
-        assert_eq!(decode_pdu(&buf).unwrap().u32_field("data_coding"), Some(0xff));
+        assert_eq!(
+            decode_pdu(&buf).unwrap().u32_field("data_coding"),
+            Some(0xff)
+        );
     }
 
     #[test]
@@ -324,8 +328,18 @@ mod tests {
     #[test]
     fn encodes_submit_multi_with_a_destination_list() {
         let dests = vec![
-            DestEntry { flag: 1, ton: Some(1), npi: Some(1), addr: Some("393331111111".into()), dl_name: None },
-            DestEntry { flag: 2, dl_name: Some("my-list".into()), ..Default::default() },
+            DestEntry {
+                flag: 1,
+                ton: Some(1),
+                npi: Some(1),
+                addr: Some("393331111111".into()),
+                dl_name: None,
+            },
+            DestEntry {
+                flag: 2,
+                dl_name: Some("my-list".into()),
+                ..Default::default()
+            },
         ];
         let p = decode_pdu(&encode_pdu(
             &PduInput::new(id("submit_multi"), 1)

@@ -46,7 +46,7 @@ fn is_dec(s: &str) -> bool {
 /// verbatim match is found without any guessing.
 pub fn normalise_id(id: &str, cfg: &CorrelationConfig) -> Vec<String> {
     let mut out: Vec<String> = vec![id.to_string()];
-    let mut add = |s: String, out: &mut Vec<String>| {
+    let add = |s: String, out: &mut Vec<String>| {
         if !s.is_empty() && !out.contains(&s) {
             out.push(s);
         }
@@ -129,7 +129,11 @@ impl DlrCorrelator {
             };
             // Earliest unmatched registration wins, so a collision cannot steal
             // another row's receipt.
-            if let Some(at) = bucket.iter().copied().find(|i| !self.registrations[*i].matched) {
+            if let Some(at) = bucket
+                .iter()
+                .copied()
+                .find(|i| !self.registrations[*i].matched)
+            {
                 self.registrations[at].matched = true;
                 return Some(self.registrations[at].token.clone());
             }
@@ -215,28 +219,40 @@ mod tests {
     fn matches_an_id_returned_verbatim() {
         let mut c = DlrCorrelator::new(ALL);
         c.register("A7F2", "row-1");
-        assert_eq!(c.match_receipt(&receipt(Some("A7F2"))), Some("row-1".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("A7F2"))),
+            Some("row-1".into())
+        );
     }
 
     #[test]
     fn matches_a_decimal_receipt_id_against_a_hex_submit_id() {
         let mut c = DlrCorrelator::new(ALL);
         c.register("123456", "row-1");
-        assert_eq!(c.match_receipt(&receipt(Some("1193046"))), Some("row-1".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("1193046"))),
+            Some("row-1".into())
+        );
     }
 
     #[test]
     fn matches_a_hex_receipt_id_against_a_decimal_submit_id() {
         let mut c = DlrCorrelator::new(ALL);
         c.register("1193046", "row-1");
-        assert_eq!(c.match_receipt(&receipt(Some("123456"))), Some("row-1".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("123456"))),
+            Some("row-1".into())
+        );
     }
 
     #[test]
     fn matches_an_id_that_gained_leading_zeros() {
         let mut c = DlrCorrelator::new(ALL);
         c.register("ABC", "row-1");
-        assert_eq!(c.match_receipt(&receipt(Some("00ABC"))), Some("row-1".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("00ABC"))),
+            Some("row-1".into())
+        );
     }
 
     #[test]
@@ -271,7 +287,10 @@ mod tests {
     fn does_not_let_a_second_receipt_steal_the_first_rows_match() {
         let mut c = DlrCorrelator::new(ALL);
         c.register("A7F2", "row-1");
-        assert_eq!(c.match_receipt(&receipt(Some("A7F2"))), Some("row-1".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("A7F2"))),
+            Some("row-1".into())
+        );
         assert_eq!(c.match_receipt(&receipt(Some("A7F2"))), None);
         assert_eq!(c.unmatched().len(), 1);
     }
@@ -281,15 +300,24 @@ mod tests {
         let mut c = DlrCorrelator::new(ALL);
         c.register("A7F2", "row-1");
         c.register("A7F2", "row-2");
-        assert_eq!(c.match_receipt(&receipt(Some("A7F2"))), Some("row-1".into()));
-        assert_eq!(c.match_receipt(&receipt(Some("A7F2"))), Some("row-2".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("A7F2"))),
+            Some("row-1".into())
+        );
+        assert_eq!(
+            c.match_receipt(&receipt(Some("A7F2"))),
+            Some("row-2".into())
+        );
     }
 
     #[test]
     fn keeps_every_candidate_form_pointing_at_the_same_row() {
         let mut c = DlrCorrelator::new(ALL);
         c.register("123456", "row-1");
-        assert_eq!(c.match_receipt(&receipt(Some("00123456"))), Some("row-1".into()));
+        assert_eq!(
+            c.match_receipt(&receipt(Some("00123456"))),
+            Some("row-1".into())
+        );
     }
 
     #[test]

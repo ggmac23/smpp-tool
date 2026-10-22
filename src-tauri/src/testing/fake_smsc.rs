@@ -36,7 +36,10 @@ fn fixture(path: &str) -> Vec<u8> {
 
 impl TlsMaterial {
     pub fn test_server() -> Self {
-        Self { cert_file: "server.crt", key_file: "server.key" }
+        Self {
+            cert_file: "server.crt",
+            key_file: "server.key",
+        }
     }
 
     fn load(
@@ -146,14 +149,21 @@ pub struct FakeSmsc {
 impl FakeSmsc {
     pub fn new() -> Self {
         Self {
-            shared: Arc::new(Mutex::new(Shared { next_message_id: 1, ..Default::default() })),
+            shared: Arc::new(Mutex::new(Shared {
+                next_message_id: 1,
+                ..Default::default()
+            })),
             tls: None,
             request_client_cert: false,
         }
     }
 
     pub fn with_tls(material: TlsMaterial, request_client_cert: bool) -> Self {
-        Self { tls: Some(material), request_client_cert, ..Self::new() }
+        Self {
+            tls: Some(material),
+            request_client_cert,
+            ..Self::new()
+        }
     }
 
     pub fn on<F>(&self, command: &str, handler: F)
@@ -201,7 +211,7 @@ impl FakeSmsc {
         let port = listener.local_addr().expect("local_addr").port();
 
         let shared = self.shared.clone();
-        let tls = self.tls.clone();
+        let tls = self.tls;
         let request_client_cert = self.request_client_cert;
 
         tokio::spawn(async move {
@@ -210,7 +220,7 @@ impl FakeSmsc {
                     return;
                 };
                 let shared = shared.clone();
-                let tls = tls.clone();
+                let tls = tls;
 
                 tokio::spawn(async move {
                     match tls {
@@ -220,7 +230,9 @@ impl FakeSmsc {
                             let builder = rustls::ServerConfig::builder();
                             let config = if request_client_cert {
                                 let mut roots = rustls::RootCertStore::empty();
-                                for cert in rustls_pemfile::certs(&mut test_ca().as_slice()).flatten() {
+                                for cert in
+                                    rustls_pemfile::certs(&mut test_ca().as_slice()).flatten()
+                                {
                                     let _ = roots.add(cert);
                                 }
                                 let verifier =
@@ -464,15 +476,21 @@ mod tests {
     async fn lets_a_handler_choose_the_command_status() {
         let smsc = FakeSmsc::new();
         smsc.on("submit_sm", |p| {
-            Some(vec![PduInput::new(command_id("submit_sm_resp").unwrap(), p.sequence_number)
-                .with_status(command_status("ESME_RTHROTTLED").unwrap())])
+            Some(vec![PduInput::new(
+                command_id("submit_sm_resp").unwrap(),
+                p.sequence_number,
+            )
+            .with_status(command_status("ESME_RTHROTTLED").unwrap())])
         });
         let port = smsc.listen().await;
         let mut client = BareClient::connect(port).await;
 
         client.send(PduInput::new(id("submit_sm"), 1)).await;
         client.wait_for(1).await;
-        assert_eq!(client.received[0].command_status, command_status("ESME_RTHROTTLED").unwrap());
+        assert_eq!(
+            client.received[0].command_status,
+            command_status("ESME_RTHROTTLED").unwrap()
+        );
     }
 
     #[tokio::test]
@@ -530,7 +548,9 @@ mod tests {
             .await
             .expect("TLS handshake failed");
 
-        tls.write_all(&encode_pdu(&PduInput::new(id("enquire_link"), 1))).await.unwrap();
+        tls.write_all(&encode_pdu(&PduInput::new(id("enquire_link"), 1)))
+            .await
+            .unwrap();
 
         let mut buf = [0u8; 256];
         let read = tokio::time::timeout(std::time::Duration::from_secs(3), tls.read(&mut buf))
@@ -539,6 +559,9 @@ mod tests {
             .unwrap();
         let mut framer = PduFramer::new();
         let raws = framer.push(&buf[..read]).unwrap();
-        assert_eq!(decode_pdu(&raws[0]).unwrap().command_id, id("enquire_link_resp"));
+        assert_eq!(
+            decode_pdu(&raws[0]).unwrap().command_id,
+            id("enquire_link_resp")
+        );
     }
 }

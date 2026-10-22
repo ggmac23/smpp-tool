@@ -169,7 +169,9 @@ mod tests {
 
     #[test]
     fn names_submit_sm_resp_with_its_message_id() {
-        let p = pdu_of(PduInput::new(command_id("submit_sm_resp").unwrap(), 42).with_str("message_id", "A7F2"));
+        let p = pdu_of(
+            PduInput::new(command_id("submit_sm_resp").unwrap(), 42).with_str("message_id", "A7F2"),
+        );
         assert!(summarise(&p).contains("A7F2"));
     }
 
@@ -208,7 +210,9 @@ mod tests {
 
     #[test]
     fn names_the_bind_system_id() {
-        let p = pdu_of(PduInput::new(command_id("bind_transceiver").unwrap(), 1).with_str("system_id", "esme"));
+        let p = pdu_of(
+            PduInput::new(command_id("bind_transceiver").unwrap(), 1).with_str("system_id", "esme"),
+        );
         assert!(summarise(&p).contains("esme"));
     }
 
@@ -225,7 +229,11 @@ mod tests {
     #[test]
     fn lists_every_mandatory_field_as_a_name_value_pair() {
         let rows = describe(&submit());
-        let find = |name: &str| rows.iter().find(|r| r.name == name).map(|r| r.value.clone());
+        let find = |name: &str| {
+            rows.iter()
+                .find(|r| r.name == name)
+                .map(|r| r.value.clone())
+        };
         assert_eq!(find("source_addr").as_deref(), Some("393331234567"));
         assert_eq!(find("destination_addr").as_deref(), Some("393337654321"));
     }
@@ -233,7 +241,12 @@ mod tests {
     #[test]
     fn includes_the_header_fields() {
         let rows = describe(&submit());
-        let find = |name: &str| rows.iter().find(|r| r.name == name).map(|r| r.value.clone()).unwrap();
+        let find = |name: &str| {
+            rows.iter()
+                .find(|r| r.name == name)
+                .map(|r| r.value.clone())
+                .unwrap()
+        };
         assert!(find("command_id").contains("submit_sm"));
         assert_eq!(find("sequence_number"), "42");
         assert!(find("command_status").contains("ESME_ROK"));
@@ -248,13 +261,18 @@ mod tests {
 
     #[test]
     fn names_each_tlv_by_its_tag_name() {
-        let p = pdu_of(PduInput::new(command_id("submit_sm").unwrap(), 1).with_tlv(Tlv::new(0x0424, b"hi".to_vec())));
+        let p = pdu_of(
+            PduInput::new(command_id("submit_sm").unwrap(), 1)
+                .with_tlv(Tlv::new(0x0424, b"hi".to_vec())),
+        );
         assert!(describe(&p).iter().any(|r| r.name == "message_payload"));
     }
 
     #[test]
     fn names_an_unknown_tlv_by_its_hex_tag() {
-        let p = pdu_of(PduInput::new(command_id("submit_sm").unwrap(), 1).with_tlv(Tlv::new(0x9999, vec![1])));
+        let p = pdu_of(
+            PduInput::new(command_id("submit_sm").unwrap(), 1).with_tlv(Tlv::new(0x9999, vec![1])),
+        );
         assert!(describe(&p).iter().any(|r| r.name == "unknown(0x9999)"));
     }
 }

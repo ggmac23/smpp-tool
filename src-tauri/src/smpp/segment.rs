@@ -147,7 +147,11 @@ pub fn segment(opts: &SegmentOptions) -> Vec<Segment> {
             }
         }
 
-        Segment { fields, tlvs: all, unmappable: encoded.unmappable }
+        Segment {
+            fields,
+            tlvs: all,
+            unmappable: encoded.unmappable,
+        }
     };
 
     // The user's own UDH turns automatic concatenation off: one segment,
@@ -205,8 +209,10 @@ pub fn segment(opts: &SegmentOptions) -> Vec<Segment> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smpp::constants::{DataCoding, EsmClass, ESM_UDHI_BIT, TLV_MESSAGE_PAYLOAD,
-        TLV_SAR_MSG_REF_NUM, TLV_SAR_SEGMENT_SEQNUM, TLV_SAR_TOTAL_SEGMENTS};
+    use crate::smpp::constants::{
+        DataCoding, EsmClass, ESM_UDHI_BIT, TLV_MESSAGE_PAYLOAD, TLV_SAR_MSG_REF_NUM,
+        TLV_SAR_SEGMENT_SEQNUM, TLV_SAR_TOTAL_SEGMENTS,
+    };
     use crate::smpp::text::{decode_text, measure, Gsm7Packing, SegmentationMode};
 
     fn opts(text: &str) -> SegmentOptions {
@@ -237,12 +243,20 @@ mod tests {
     }
 
     fn tlv(seg: &Segment, tag: u16) -> Vec<u8> {
-        seg.tlvs.iter().find(|t| t.tag == tag).expect("missing TLV").value.clone()
+        seg.tlvs
+            .iter()
+            .find(|t| t.tag == tag)
+            .expect("missing TLV")
+            .value
+            .clone()
     }
 
     #[test]
     fn returns_one_oversized_segment_in_none_mode() {
-        let segs = segment(&SegmentOptions { mode: SegmentationMode::None, ..opts(&"a".repeat(400)) });
+        let segs = segment(&SegmentOptions {
+            mode: SegmentationMode::None,
+            ..opts(&"a".repeat(400))
+        });
         assert_eq!(segs.len(), 1);
         assert_eq!(body(&segs[0]).len(), 400);
     }
@@ -257,7 +271,10 @@ mod tests {
 
     #[test]
     fn splits_ucs2_into_67_character_segments_in_udh_mode() {
-        let segs = segment(&SegmentOptions { data_coding: DataCoding::UCS2, ..opts(&"a".repeat(200)) });
+        let segs = segment(&SegmentOptions {
+            data_coding: DataCoding::UCS2,
+            ..opts(&"a".repeat(200))
+        });
         assert_eq!(segs.len(), 3);
         assert_eq!(body(&segs[0]).len(), 6 + 67 * 2);
     }
@@ -267,14 +284,23 @@ mod tests {
         let text = "a".repeat(400);
         let joined: String = segment(&opts(&text))
             .iter()
-            .map(|s| decode_text(&body(s)[6..], DataCoding::GSM_DEFAULT, Gsm7Packing::Unpacked))
+            .map(|s| {
+                decode_text(
+                    &body(s)[6..],
+                    DataCoding::GSM_DEFAULT,
+                    Gsm7Packing::Unpacked,
+                )
+            })
             .collect();
         assert_eq!(joined, text);
     }
 
     #[test]
     fn writes_a_concatenation_udh_with_a_shared_reference_and_rising_sequence() {
-        let segs = segment(&SegmentOptions { ref_num: Some(0x2a), ..opts(&"a".repeat(400)) });
+        let segs = segment(&SegmentOptions {
+            ref_num: Some(0x2a),
+            ..opts(&"a".repeat(400))
+        });
         for (i, seg) in segs.iter().enumerate() {
             let udh = &body(seg)[..6];
             assert_eq!(udh[0], 0x05);
@@ -288,10 +314,19 @@ mod tests {
 
     #[test]
     fn sets_the_udhi_bit_in_esm_class_in_udh_mode_only() {
-        assert_eq!(esm(&segment(&opts(&"a".repeat(400)))[0]) & ESM_UDHI_BIT, ESM_UDHI_BIT);
-        let sar = segment(&SegmentOptions { mode: SegmentationMode::Sar, ..opts(&"a".repeat(400)) });
+        assert_eq!(
+            esm(&segment(&opts(&"a".repeat(400)))[0]) & ESM_UDHI_BIT,
+            ESM_UDHI_BIT
+        );
+        let sar = segment(&SegmentOptions {
+            mode: SegmentationMode::Sar,
+            ..opts(&"a".repeat(400))
+        });
         assert_eq!(esm(&sar[0]) & ESM_UDHI_BIT, 0);
-        let none = segment(&SegmentOptions { mode: SegmentationMode::None, ..opts("hi") });
+        let none = segment(&SegmentOptions {
+            mode: SegmentationMode::None,
+            ..opts("hi")
+        });
         assert_eq!(esm(&none[0]) & ESM_UDHI_BIT, 0);
     }
 
@@ -320,21 +355,33 @@ mod tests {
 
     #[test]
     fn numbers_sar_segments_from_one() {
-        let segs = segment(&SegmentOptions { mode: SegmentationMode::Sar, ..opts(&"a".repeat(400)) });
-        let seqs: Vec<u8> = segs.iter().map(|s| tlv(s, TLV_SAR_SEGMENT_SEQNUM)[0]).collect();
+        let segs = segment(&SegmentOptions {
+            mode: SegmentationMode::Sar,
+            ..opts(&"a".repeat(400))
+        });
+        let seqs: Vec<u8> = segs
+            .iter()
+            .map(|s| tlv(s, TLV_SAR_SEGMENT_SEQNUM)[0])
+            .collect();
         assert_eq!(seqs, vec![1, 2, 3]);
     }
 
     #[test]
     fn adds_no_udh_to_the_body_in_sar_mode() {
-        let segs = segment(&SegmentOptions { mode: SegmentationMode::Sar, ..opts(&"a".repeat(400)) });
+        let segs = segment(&SegmentOptions {
+            mode: SegmentationMode::Sar,
+            ..opts(&"a".repeat(400))
+        });
         assert_eq!(body(&segs[0]).len(), 153);
     }
 
     #[test]
     fn a_user_supplied_udh_turns_automatic_concatenation_off() {
         let udh = vec![0x03, 0x20, 0x01, 0x05];
-        let segs = segment(&SegmentOptions { user_udh: Some(udh.clone()), ..opts(&"a".repeat(400)) });
+        let segs = segment(&SegmentOptions {
+            user_udh: Some(udh.clone()),
+            ..opts(&"a".repeat(400))
+        });
         assert_eq!(segs.len(), 1);
         assert_eq!(&body(&segs[0])[..4], &udh[..]);
         // The whole body rides along: nothing was split behind the user's back.
@@ -364,13 +411,19 @@ mod tests {
 
     #[test]
     fn reports_unmappable_characters_on_each_segment() {
-        let segs = segment(&SegmentOptions { mode: SegmentationMode::None, ..opts("hi 🙂") });
+        let segs = segment(&SegmentOptions {
+            mode: SegmentationMode::None,
+            ..opts("hi 🙂")
+        });
         assert_eq!(segs[0].unmappable, vec!["🙂".to_string()]);
     }
 
     #[test]
     fn segments_packed_gsm7_into_134_octet_bodies() {
-        let segs = segment(&SegmentOptions { packing: Gsm7Packing::Packed, ..opts(&"a".repeat(400)) });
+        let segs = segment(&SegmentOptions {
+            packing: Gsm7Packing::Packed,
+            ..opts(&"a".repeat(400))
+        });
         assert_eq!(body(&segs[0]).len(), 6 + 134);
     }
 
@@ -381,11 +434,17 @@ mod tests {
         assert_eq!(segment(&opts(&"a".repeat(160))).len(), 1);
         assert_eq!(segment(&opts(&"a".repeat(161))).len(), 2);
 
-        let ucs2 = |n: usize| SegmentOptions { data_coding: DataCoding::UCS2, ..opts(&"a".repeat(n)) };
+        let ucs2 = |n: usize| SegmentOptions {
+            data_coding: DataCoding::UCS2,
+            ..opts(&"a".repeat(n))
+        };
         assert_eq!(segment(&ucs2(70)).len(), 1);
         assert_eq!(segment(&ucs2(71)).len(), 2);
 
-        let oct = |n: usize| SegmentOptions { data_coding: DataCoding::OCTET_UNSPECIFIED_4, ..opts(&"a".repeat(n)) };
+        let oct = |n: usize| SegmentOptions {
+            data_coding: DataCoding::OCTET_UNSPECIFIED_4,
+            ..opts(&"a".repeat(n))
+        };
         assert_eq!(segment(&oct(140)).len(), 1);
         assert_eq!(segment(&oct(141)).len(), 2);
     }
@@ -393,18 +452,28 @@ mod tests {
     #[test]
     fn agrees_with_the_live_counter_about_how_many_parts_there_will_be() {
         let cases: &[(usize, u8)] = &[
-            (153, DataCoding::GSM_DEFAULT), (157, DataCoding::GSM_DEFAULT),
-            (160, DataCoding::GSM_DEFAULT), (161, DataCoding::GSM_DEFAULT),
+            (153, DataCoding::GSM_DEFAULT),
+            (157, DataCoding::GSM_DEFAULT),
+            (160, DataCoding::GSM_DEFAULT),
+            (161, DataCoding::GSM_DEFAULT),
             (320, DataCoding::GSM_DEFAULT),
-            (67, DataCoding::UCS2), (69, DataCoding::UCS2),
-            (70, DataCoding::UCS2), (71, DataCoding::UCS2),
-            (134, DataCoding::OCTET_UNSPECIFIED_4), (138, DataCoding::OCTET_UNSPECIFIED_4),
-            (140, DataCoding::OCTET_UNSPECIFIED_4), (141, DataCoding::OCTET_UNSPECIFIED_4),
+            (67, DataCoding::UCS2),
+            (69, DataCoding::UCS2),
+            (70, DataCoding::UCS2),
+            (71, DataCoding::UCS2),
+            (134, DataCoding::OCTET_UNSPECIFIED_4),
+            (138, DataCoding::OCTET_UNSPECIFIED_4),
+            (140, DataCoding::OCTET_UNSPECIFIED_4),
+            (141, DataCoding::OCTET_UNSPECIFIED_4),
         ];
         for (n, dc) in cases {
             let text = "a".repeat(*n);
             let counted = measure(&text, *dc, SegmentationMode::Udh, Gsm7Packing::Unpacked).parts;
-            let actual = segment(&SegmentOptions { data_coding: *dc, ..opts(&text) }).len();
+            let actual = segment(&SegmentOptions {
+                data_coding: *dc,
+                ..opts(&text)
+            })
+            .len();
             assert_eq!(actual, counted, "{n} chars at data_coding {dc}");
         }
     }

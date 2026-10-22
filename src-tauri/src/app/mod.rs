@@ -2,3 +2,4 @@
 //! engine and the profile store. The protocol layer in `smpp` stays pure.
 
 pub mod dlr;
+pub mod transport;

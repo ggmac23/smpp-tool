@@ -82,17 +82,16 @@ fn field(text: &str, key: &str) -> Option<String> {
 
 /// `submit date:` and `done date:` carry a space inside the key.
 fn date_field(text: &str, which: &str) -> Option<String> {
-    field(text, &format!("{which} date"))
-        .or_else(|| {
-            // Tolerate the space: look for "<which> date:" directly.
-            let lower = text.to_ascii_lowercase();
-            let needle = format!("{which} date:");
-            lower.find(&needle).map(|at| {
-                let rest = &text[at + needle.len()..];
-                let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
-                rest[..end].to_string()
-            })
+    field(text, &format!("{which} date")).or_else(|| {
+        // Tolerate the space: look for "<which> date:" directly.
+        let lower = text.to_ascii_lowercase();
+        let needle = format!("{which} date:");
+        lower.find(&needle).map(|at| {
+            let rest = &text[at + needle.len()..];
+            let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+            rest[..end].to_string()
         })
+    })
 }
 
 fn cstr(bytes: &[u8]) -> String {
@@ -170,8 +169,12 @@ mod tests {
 
     #[test]
     fn prefers_the_receipted_message_id_tlv_over_the_text() {
-        let r = parse_receipt(&deliver(RECEIPT, 0x04,
-            vec![Tlv::new(0x001e, b"FROM-TLV\0".to_vec())])).unwrap();
+        let r = parse_receipt(&deliver(
+            RECEIPT,
+            0x04,
+            vec![Tlv::new(0x001e, b"FROM-TLV\0".to_vec())],
+        ))
+        .unwrap();
         assert_eq!(r.message_id.as_deref(), Some("FROM-TLV"));
         assert_eq!(r.source, ReceiptSource::Tlv);
     }
@@ -205,7 +208,12 @@ mod tests {
 
     #[test]
     fn tolerates_receipt_text_with_extra_unknown_keys() {
-        let r = parse_receipt(&deliver("id:XYZ vendor:acme ratio:7 stat:EXPIRED err:042 nonsense", 0x04, vec![])).unwrap();
+        let r = parse_receipt(&deliver(
+            "id:XYZ vendor:acme ratio:7 stat:EXPIRED err:042 nonsense",
+            0x04,
+            vec![],
+        ))
+        .unwrap();
         assert_eq!(r.message_id.as_deref(), Some("XYZ"));
         assert_eq!(r.state.as_deref(), Some("EXPIRED"));
         assert_eq!(r.error_code.as_deref(), Some("042"));
@@ -230,12 +238,19 @@ mod tests {
             .with_num("esm_class", 0x04)
             .with_tlv(Tlv::new(0x0424, RECEIPT.as_bytes().to_vec()));
         let pdu = decode_pdu(&encode_pdu(&input)).unwrap();
-        assert_eq!(parse_receipt(&pdu).unwrap().message_id.as_deref(), Some("0A1B2C3D"));
+        assert_eq!(
+            parse_receipt(&pdu).unwrap().message_id.as_deref(),
+            Some("0A1B2C3D")
+        );
     }
 
     #[test]
     fn returns_nothing_for_a_pdu_that_is_not_a_delivery() {
-        let pdu = decode_pdu(&encode_pdu(&PduInput::new(command_id("submit_sm").unwrap(), 1))).unwrap();
+        let pdu = decode_pdu(&encode_pdu(&PduInput::new(
+            command_id("submit_sm").unwrap(),
+            1,
+        )))
+        .unwrap();
         assert!(parse_receipt(&pdu).is_none());
     }
 
