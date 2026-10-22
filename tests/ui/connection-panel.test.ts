@@ -4,6 +4,7 @@ import {
   BIND_MODES,
   TON_NPI_PRESETS,
   buildConnectRequest,
+  buildProfile,
   buildBindRequest,
   stateLabel,
   lengthWarnings,
@@ -170,5 +171,66 @@ describe("stateLabel", () => {
 
   it("reads Unbinding while unbinding", () => {
     expect(stateLabel("unbinding", "transceiver")).toBe("Unbinding…");
+  });
+});
+
+describe("buildProfile", () => {
+  /**
+   * The widget used to hand-roll this shape and put the three TLS paths
+   * beside `tls` instead of inside it, where serde silently dropped them: a
+   * profile saved with a CA and a client certificate came back with none,
+   * and the bind then failed on the handshake with nothing to say why.
+   */
+  const FULL: ConnectionFormValues = {
+    ...FORM,
+    tlsEnabled: true,
+    caPath: "/etc/ssl/ca.pem",
+    clientCertPath: "/etc/ssl/client.crt",
+    clientKeyPath: "/etc/ssl/client.key",
+    addressRange: "^4477.*",
+    systemType: "SMPP",
+  };
+
+  it("keeps the TLS paths where the backend reads them", () => {
+    const profile = buildProfile("p1", "Staging", FULL);
+    expect(profile.tls.caPath).toBe("/etc/ssl/ca.pem");
+    expect(profile.tls.clientCertPath).toBe("/etc/ssl/client.crt");
+    expect(profile.tls.clientKeyPath).toBe("/etc/ssl/client.key");
+  });
+
+  it("puts nothing at the top level that the backend would not read", () => {
+    const profile = buildProfile("p1", "Staging", FULL) as unknown as Record<string, unknown>;
+    for (const stray of ["caPath", "clientCertPath", "clientKeyPath", "password"]) {
+      expect(profile[stray], stray).toBeUndefined();
+    }
+  });
+
+  it("carries every bind field, address_range included", () => {
+    const profile = buildProfile("p1", "Staging", FULL);
+    expect(profile.bind.addressRange).toBe("^4477.*");
+    expect(profile.bind.systemType).toBe("SMPP");
+    expect(profile.bind.addrTon).toBe(FULL.addrTon);
+    expect(profile.bind.addrNpi).toBe(FULL.addrNpi);
+  });
+
+  it("describes the same connection buildConnectRequest would open", () => {
+    const profile = buildProfile("p1", "Staging", FULL);
+    const request = buildConnectRequest(FULL);
+    expect(profile.tls).toEqual({
+      enabled: request.tls.enabled,
+      rejectUnauthorized: request.tls.rejectUnauthorized,
+      servername: request.tls.servername,
+      caPath: request.tls.caPath,
+      clientCertPath: request.tls.clientCertPath,
+      clientKeyPath: request.tls.clientKeyPath,
+    });
+    expect(profile.host).toBe(request.host);
+    expect(profile.port).toBe(request.port);
+  });
+
+  it("holds no secret at all", () => {
+    const json = JSON.stringify(buildProfile("p1", "Staging", { ...FULL, password: "hunter2" }));
+    expect(json).not.toContain("hunter2");
+    expect(json).not.toContain("clientKeyPassphrase");
   });
 });

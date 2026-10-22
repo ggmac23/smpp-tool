@@ -7,6 +7,7 @@ import {
   type CorrelationConfig,
   type ConnectRequest,
   type BindRequest,
+  type Profile,
 } from "./protocol";
 
 export interface Option<T> {
@@ -91,6 +92,44 @@ export function buildConnectRequest(v: ConnectionFormValues): ConnectRequest {
     windowSize: v.windowSize,
     responseTimeoutMs: v.responseTimeoutMs,
     connectTimeoutMs: v.connectTimeoutMs,
+  };
+}
+
+/**
+ * A profile, in the shape the backend stores. It reuses `buildConnectRequest`
+ * and `buildBindRequest` rather than naming the fields again: the saved
+ * profile and the connection it opens have to describe the same connection,
+ * and two hand-written shapes drift — the first one dropped every TLS path on
+ * the floor, because it put them beside `tls` instead of inside it.
+ */
+export function buildProfile(id: string, name: string, v: ConnectionFormValues): Profile {
+  const request = buildConnectRequest(v);
+  const bind = buildBindRequest(v);
+  return {
+    id,
+    name,
+    host: request.host,
+    port: request.port,
+    bind: {
+      systemId: bind.systemId,
+      systemType: bind.systemType,
+      interfaceVersion: bind.interfaceVersion,
+      mode: bind.mode,
+      addrTon: bind.addrTon,
+      addrNpi: bind.addrNpi,
+      addressRange: bind.addressRange,
+    },
+    // No secret has anywhere to go here: the passphrase is not part of the
+    // TLS block the profile stores, and the password never was.
+    tls: {
+      enabled: request.tls.enabled,
+      rejectUnauthorized: request.tls.rejectUnauthorized,
+      servername: request.tls.servername,
+      caPath: request.tls.caPath,
+      clientCertPath: request.tls.clientCertPath,
+      clientKeyPath: request.tls.clientKeyPath,
+    },
+    correlation: request.correlation,
   };
 }
 

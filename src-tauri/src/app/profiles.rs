@@ -316,6 +316,77 @@ mod tests {
     }
 
     #[test]
+    fn reads_the_profile_the_renderer_sends_without_losing_the_tls_paths() {
+        // This is `buildProfile`'s output, verbatim. The widget used to put
+        // the three paths beside `tls` rather than inside it; serde dropped
+        // them without a word, and a profile saved with a CA and a client
+        // certificate came back with neither — so the bind failed on the
+        // handshake and nothing said why.
+        let sent = serde_json::json!({
+            "id": "p1",
+            "name": "Staging",
+            "host": "smsc.example.com",
+            "port": 2775,
+            "bind": {
+                "systemId": "esme",
+                "systemType": "SMPP",
+                "interfaceVersion": 0x34,
+                "mode": "transceiver",
+                "addrTon": 0,
+                "addrNpi": 0,
+                "addressRange": "^4477.*"
+            },
+            "tls": {
+                "enabled": true,
+                "rejectUnauthorized": false,
+                "servername": "smsc.example.com",
+                "caPath": "/etc/ssl/ca.pem",
+                "clientCertPath": "/etc/ssl/client.crt",
+                "clientKeyPath": "/etc/ssl/client.key"
+            },
+            "correlation": {
+                "preferTlv": true,
+                "parseText": true,
+                "normaliseRadix": true,
+                "stripLeadingZeros": true
+            }
+        });
+
+        let profile: Profile = serde_json::from_value(sent).expect("the renderer's shape");
+        assert_eq!(profile.tls.ca_path.as_deref(), Some("/etc/ssl/ca.pem"));
+        assert_eq!(
+            profile.tls.client_cert_path.as_deref(),
+            Some("/etc/ssl/client.crt")
+        );
+        assert_eq!(
+            profile.tls.client_key_path.as_deref(),
+            Some("/etc/ssl/client.key")
+        );
+        assert_eq!(profile.bind.address_range, "^4477.*");
+        assert_eq!(profile.bind.system_type, "SMPP");
+    }
+
+    #[test]
+    fn a_saved_profile_comes_back_with_its_tls_paths() {
+        let dir = TempDir::new("profiles-tlspaths");
+        let s = store(&dir);
+        let mut p = profile();
+        p.tls.ca_path = Some("/etc/ssl/ca.pem".into());
+        p.tls.client_cert_path = Some("/etc/ssl/client.crt".into());
+        p.tls.client_key_path = Some("/etc/ssl/client.key".into());
+        p.bind.address_range = "^4477.*".into();
+
+        s.save(&p, None, None).unwrap();
+        let back = &store(&dir).list()[0];
+        assert_eq!(back.tls.ca_path.as_deref(), Some("/etc/ssl/ca.pem"));
+        assert_eq!(
+            back.tls.client_key_path.as_deref(),
+            Some("/etc/ssl/client.key")
+        );
+        assert_eq!(back.bind.address_range, "^4477.*");
+    }
+
+    #[test]
     fn returns_an_empty_list_for_a_fresh_directory() {
         let dir = TempDir::new("profiles-empty");
         assert_eq!(store(&dir).list(), vec![]);

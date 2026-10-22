@@ -36,9 +36,14 @@ qx.Class.define("smppclient.Shell", {
 
     this.__connection.addListener("notice", e => this.showNotice(e.getData()));
     this.__connection.addListener("stateChanged", e => this.setConnectionState(e.getData()));
-    smppclient.Api.getInstance().addListener("commandError", e =>
+    const api = smppclient.Api.getInstance();
+    api.addListener("commandError", e =>
       this.showNotice(e.getData().command + ": " + e.getData().message)
     );
+    // The backend also reports a failure as an event, so that something nobody
+    // awaited — a burst row that would not serialise, a command fired and
+    // forgotten — still reaches the user instead of vanishing.
+    api.on("error", e => this.showNotice((e.where || "backend") + ": " + e.message));
   },
 
   members: {

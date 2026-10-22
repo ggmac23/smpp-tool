@@ -309,7 +309,14 @@ qx.Class.define("smppclient.TracePanel", {
         .then(status => {
           const parts = [
             SmppForms.droppedNotice(status ? status.dropped : 0),
-            SmppForms.pendingNotice(status ? status.pending : null)
+            // The report names these two separately; reading a `pending`
+            // object that does not exist made this notice unreachable, which
+            // is exactly the silent stall it was written to make visible.
+            SmppForms.pendingNotice(
+              status
+                ? { buffered: status.pendingBuffered, declared: status.pendingDeclared }
+                : null
+            )
           ].filter(Boolean);
           const notice = parts.join("  ");
           this.__dropped.setValue(notice);

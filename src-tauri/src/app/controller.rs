@@ -67,6 +67,14 @@ pub struct SendOutcome {
     pub command_status: u32,
 }
 
+/// Where a file was written. An object rather than a bare string because the
+/// renderer reads `result.path`, and a string has no `path`.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WrittenFile {
+    pub path: String,
+}
+
 /// A body, encoded, with the characters the coding could not hold named.
 /// Those go out as question marks: a warning, never a refusal.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -399,7 +407,7 @@ impl Controller {
         self.trace.lock().unwrap().set_cap(cap);
     }
 
-    pub fn export_trace(&self, format: ExportFormat, path: &str) -> Result<String, String> {
+    pub fn export_trace(&self, format: ExportFormat, path: &str) -> Result<WrittenFile, String> {
         let entries = self.trace.lock().unwrap().entries(None, None);
         let body = match format {
             ExportFormat::Text => trace_to_text(&entries),
@@ -416,7 +424,7 @@ impl Controller {
         write_file(path, &body)
     }
 
-    pub fn export_burst(&self, path: &str) -> Result<String, String> {
+    pub fn export_burst(&self, path: &str) -> Result<WrittenFile, String> {
         let rows = self.burst_rows(0, usize::MAX);
         let body = to_csv(&csv_rows(&rows, BURST_CSV_COLUMNS), BURST_CSV_COLUMNS);
         write_file(path, &body)
@@ -688,9 +696,11 @@ fn csv_rows<T: serde::Serialize>(items: &[T], columns: &[&str]) -> Vec<Vec<(Stri
         .collect()
 }
 
-fn write_file(path: &str, body: &str) -> Result<String, String> {
+fn write_file(path: &str, body: &str) -> Result<WrittenFile, String> {
     std::fs::write(path, body).map_err(|e| format!("could not write {path}: {e}"))?;
-    Ok(path.to_string())
+    Ok(WrittenFile {
+        path: path.to_string(),
+    })
 }
 
 fn now_ms() -> u64 {
@@ -942,6 +952,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_export_says_where_it_wrote_in_the_shape_the_renderer_reads() {
+        // The renderer shows `result.path`. A bare string has no `path`, so
+        // every successful export read as a cancelled one.
+        let dir = TempDir::new("ctl-exportshape");
+        let (_rec, ctl) = controller(&dir);
+        let path = dir.join("trace.csv");
+
+        let written = ctl
+            .export_trace(ExportFormat::Csv, path.to_str().unwrap())
+            .unwrap();
+        assert_eq!(written.path, path.to_str().unwrap());
+
+        let json = serde_json::to_value(&written).unwrap();
+        assert!(
+            json.get("path").is_some(),
+            "the renderer reads result.path: {json}"
+        );
+    }
+
+    #[tokio::test]
     async fn exports_the_trace_in_each_format() {
         let smsc = FakeSmsc::new();
         let port = smsc.listen().await;
@@ -959,7 +989,7 @@ mod tests {
         ] {
             let path = dir.join(&format!("trace.{}", format.extension()));
             let written = ctl.export_trace(format, path.to_str().unwrap()).unwrap();
-            let body = std::fs::read_to_string(&written).unwrap();
+            let body = std::fs::read_to_string(&written.path).unwrap();
             assert!(
                 body.contains(probe),
                 "{format:?} export looks wrong: {body}"

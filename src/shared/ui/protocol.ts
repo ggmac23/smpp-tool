@@ -219,6 +219,32 @@ export interface BindRequest {
   addressRange: string;
 }
 
+/** A saved connection. It holds no secret: those live in the keychain. */
+export interface Profile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  bind: {
+    systemId: string;
+    systemType: string;
+    interfaceVersion: number;
+    mode: BindMode;
+    addrTon: number;
+    addrNpi: number;
+    addressRange: string;
+  };
+  tls: {
+    enabled: boolean;
+    rejectUnauthorized: boolean;
+    servername?: string | null;
+    caPath?: string | null;
+    clientCertPath?: string | null;
+    clientKeyPath?: string | null;
+  };
+  correlation: CorrelationConfig;
+}
+
 export interface Measurement {
   chars: number;
   bits: number;

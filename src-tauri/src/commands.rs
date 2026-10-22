@@ -18,7 +18,9 @@ use crate::app::burst::BurstDone;
 use crate::app::compose::{
     compose_submit as compose, preview_pdu as preview, ComposedSubmit, SubmitFormValues,
 };
-use crate::app::controller::{BindAccepted, Controller, EncodedBody, ProfileSecrets, SendOutcome};
+use crate::app::controller::{
+    BindAccepted, Controller, EncodedBody, ProfileSecrets, SendOutcome, WrittenFile,
+};
 use crate::app::events::{Emitter, EventHub, DEFAULT_BATCH};
 use crate::app::loadtest::LoadReport;
 use crate::app::profiles::{KeyringSecrets, Profile, ProfileStore};
@@ -214,7 +216,7 @@ pub async fn export_trace<R: Runtime>(
     app: AppHandle<R>,
     ctl: Ctl<'_>,
     format: ExportFormat,
-) -> Result<Option<String>, String> {
+) -> Result<Option<WrittenFile>, String> {
     let Some(path) = ask_save(&app, &format!("trace.{}", format.extension())).await else {
         return Ok(None);
     };
@@ -226,7 +228,7 @@ pub async fn export_trace<R: Runtime>(
 pub async fn export_burst<R: Runtime>(
     app: AppHandle<R>,
     ctl: Ctl<'_>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<WrittenFile>, String> {
     let Some(path) = ask_save(&app, "burst.csv").await else {
         return Ok(None);
     };

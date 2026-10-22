@@ -346,18 +346,25 @@ qx.Class.define("smppclient.ConnectionPanel", {
       if (!profile) {
         return;
       }
+      // Every field is given a value, blank included. Leaving one out keeps
+      // whatever the last profile put there — which is how a plain-TLS
+      // profile ended up presenting the previous profile's client
+      // certificate.
+      const tls = profile.tls || {};
+      const bind = profile.bind || {};
       this.setFormValues({
         host: profile.host,
         port: profile.port,
-        tlsEnabled: !!(profile.tls && profile.tls.enabled),
-        rejectUnauthorized: !profile.tls || profile.tls.rejectUnauthorized !== false,
-        servername: (profile.tls && profile.tls.servername) || "",
-        caPath: profile.caPath,
-        clientCertPath: profile.clientCertPath,
-        clientKeyPath: profile.clientKeyPath,
+        tlsEnabled: !!tls.enabled,
+        rejectUnauthorized: tls.rejectUnauthorized !== false,
+        servername: tls.servername || "",
+        caPath: tls.caPath || "",
+        clientCertPath: tls.clientCertPath || "",
+        clientKeyPath: tls.clientKeyPath || "",
         name: profile.name,
-        systemId: profile.bind && profile.bind.systemId,
-        systemType: profile.bind && profile.bind.systemType
+        systemId: bind.systemId || "",
+        systemType: bind.systemType || "",
+        addressRange: bind.addressRange || ""
       });
 
       this.__api
@@ -377,27 +384,10 @@ qx.Class.define("smppclient.ConnectionPanel", {
       const name = this.__fields.name.getValue() || values.host;
       const id = existing && existing.name === name ? existing.id : "p" + Date.now();
 
-      const profile = {
-        id: id,
-        name: name,
-        host: values.host,
-        port: values.port,
-        bind: {
-          systemId: values.systemId,
-          systemType: values.systemType,
-          interfaceVersion: SmppForms.buildBindRequest(values).interfaceVersion,
-          mode: SmppForms.buildBindRequest(values).mode
-        },
-        tls: {
-          enabled: values.tlsEnabled,
-          rejectUnauthorized: values.rejectUnauthorized,
-          servername: values.servername || undefined
-        },
-        correlation: values.correlation,
-        caPath: values.caPath || undefined,
-        clientCertPath: values.clientCertPath || undefined,
-        clientKeyPath: values.clientKeyPath || undefined
-      };
+      // Built from the same values the connection itself is built from, so
+      // a saved profile and the connection it opens cannot describe
+      // different things.
+      const profile = SmppForms.buildProfile(id, name, values);
 
       this.__api
         .call("save_profile", {
