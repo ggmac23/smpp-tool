@@ -59,7 +59,7 @@ qx.Class.define("smppclient.TlvEditor", {
       return row;
     },
 
-    /** The rows, in the shape `SmppForms.buildSubmitInput` expects. */
+    /** The rows, in the shape `compose_submit` expects. */
     getValues() {
       return this.__rows
         .filter(r => (r.tag.getValue() || "").length > 0)

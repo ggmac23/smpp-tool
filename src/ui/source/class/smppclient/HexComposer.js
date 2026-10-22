@@ -101,18 +101,30 @@ qx.Class.define("smppclient.HexComposer", {
       return this.__sendButton.getEnabled();
     },
 
+    /**
+     * Re-read the box. Parsing is local, so a typo is named at once; decoding
+     * is the backend's, so there is one codec and the preview cannot disagree
+     * with what goes on the wire.
+     */
     refresh() {
-      let preview;
+      let hex;
       try {
-        preview = SmppForms.previewPdu(this.getHex());
+        hex = SmppForms.compactHex(this.getHex());
       } catch (e) {
         this.__summary.setValue(e.message);
         this.__summary.setTextColor("#b03030");
         this.__preview.setValue("");
         this.__sendButton.setEnabled(false);
-        return null;
+        return Promise.resolve(null);
       }
 
+      return this.__api
+        .call("preview_pdu", { hex: hex })
+        .then(preview => this.__show(preview))
+        .catch(() => null);
+    },
+
+    __show(preview) {
       if (preview.ok) {
         this.__summary.setValue(preview.byteCount + " bytes — " + preview.summary);
         this.__summary.setTextColor(null);
@@ -136,7 +148,7 @@ qx.Class.define("smppclient.HexComposer", {
     send() {
       const hex = this.getHex();
       return this.__api
-        .call("sendRaw", hex)
+        .call("send_raw", { hex: hex })
         .then(() => {
           const bytes = SmppForms.parseHex(hex).length;
           this.fireDataEvent("notice", "Sent " + bytes + " raw bytes");

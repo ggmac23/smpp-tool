@@ -1,7 +1,13 @@
-import { InterfaceVersion, Ton, Npi } from "../../smpp/constants";
-import type { BindMode, BindState } from "../../main/session";
-import type { CorrelationConfig } from "../../main/dlr";
-import type { ConnectRequest, BindRequest } from "../api";
+import {
+  InterfaceVersion,
+  Ton,
+  Npi,
+  type BindMode,
+  type BindState,
+  type CorrelationConfig,
+  type ConnectRequest,
+  type BindRequest,
+} from "./protocol";
 
 export interface Option<T> {
   label: string;

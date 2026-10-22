@@ -1,9 +1,15 @@
 /**
- * The single point where the UI talks to the main process.
+ * The single point where the UI talks to the Rust backend.
  *
- * No widget touches `window.smpp` directly: that keeps the bridge swappable
- * (a test or a browser-only run can install a stand-in) and means every
- * command goes through one place that reports failures the same way.
+ * No widget touches `window.__TAURI__` directly: that keeps the bridge
+ * swappable (a test or a browser-only run can install a stand-in) and means
+ * every command goes through one place that reports failures the same way.
+ *
+ * Arguments are named, not positional, because that is how Tauri's `invoke`
+ * passes them: `call("trace", { from: 0, limit: 200 })`.
+ *
+ * @ignore(__TAURI__)
+ * @ignore(window.__TAURI__)
  */
 qx.Class.define("smppclient.Api", {
   extend: qx.core.Object,
@@ -17,13 +23,26 @@ qx.Class.define("smppclient.Api", {
   members: {
     __bridge: null,
 
-    /** Install a stand-in bridge. Used when running outside Electron. */
+    /**
+     * Install a stand-in bridge: an object with `invoke(command, args)` and
+     * `listen(event, callback)`. Used when running outside the app.
+     */
     setBridge(bridge) {
       this.__bridge = bridge;
     },
 
     bridge() {
-      return this.__bridge || (typeof window !== "undefined" ? window.smpp : null);
+      if (this.__bridge) {
+        return this.__bridge;
+      }
+      const tauri = typeof window !== "undefined" ? window.__TAURI__ : null;
+      if (!tauri || !tauri.core || !tauri.event) {
+        return null;
+      }
+      return {
+        invoke: (command, args) => tauri.core.invoke(command, args),
+        listen: (event, callback) => tauri.event.listen(event, callback)
+      };
     },
 
     available() {
@@ -31,29 +50,60 @@ qx.Class.define("smppclient.Api", {
     },
 
     /**
-     * Call a command. Rejects with an Error whose message came from the main
-     * process; also fires `commandError` so a panel can show it without
-     * every caller having to.
+     * Call a command with named arguments. Rejects with an Error whose
+     * message came from the backend; also fires `commandError` so a panel can
+     * show it without every caller having to.
      */
-    call(command, ...args) {
+    call(command, args) {
       const bridge = this.bridge();
       if (!bridge) {
         const err = new Error(
-          "the main process is not reachable; this build must run inside the app"
+          "the backend is not reachable; this build must run inside the app"
         );
         this.fireDataEvent("commandError", { command: command, message: err.message });
         return Promise.reject(err);
       }
-      return bridge[command](...args).catch(e => {
-        this.fireDataEvent("commandError", { command: command, message: e.message });
-        throw e;
+      return bridge.invoke(command, args || {}).catch(e => {
+        const message = e && e.message ? e.message : String(e);
+        this.fireDataEvent("commandError", { command: command, message: message });
+        throw new Error(message);
       });
     },
 
-    /** Subscribe to a main-process event. Returns an unsubscribe function. */
+    /**
+     * Subscribe to a backend event. Returns an unsubscribe function at once,
+     * even though Tauri resolves the real one later: a caller must be able to
+     * stop listening without having to await first.
+     */
     on(event, callback) {
       const bridge = this.bridge();
-      return bridge ? bridge.on(event, callback) : function () {};
+      if (!bridge) {
+        return function () {};
+      }
+      let stop = null;
+      let cancelled = false;
+      bridge
+        .listen(event, e => callback(e && "payload" in e ? e.payload : e))
+        .then(unlisten => {
+          if (cancelled) {
+            unlisten();
+          } else {
+            stop = unlisten;
+          }
+        })
+        .catch(e => {
+          this.fireDataEvent("commandError", {
+            command: "listen:" + event,
+            message: e && e.message ? e.message : String(e)
+          });
+        });
+
+      return function () {
+        cancelled = true;
+        if (stop) {
+          stop();
+        }
+      };
     }
   }
 });

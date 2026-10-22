@@ -637,6 +637,23 @@ fn tls_options(req: &ConnectRequest) -> Result<TlsOptions, String> {
         }
     };
 
+    // The profile store keeps a key passphrase, so the UI offers one, but
+    // rustls-pemfile cannot decrypt a key. Saying so beats a parse error the
+    // user has to guess at.
+    if req
+        .tls
+        .client_key_passphrase
+        .as_deref()
+        .is_some_and(|p| !p.is_empty())
+    {
+        return Err(
+            "this build cannot open an encrypted client key; decrypt it first \
+                    (openssl pkey -in key.pem -out key-decrypted.pem) and point the \
+                    profile at the decrypted file"
+                .into(),
+        );
+    }
+
     Ok(TlsOptions {
         enabled: req.tls.enabled,
         // Read at connect time, so a renewed certificate takes effect without
@@ -788,6 +805,24 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("not connected"));
+    }
+
+    #[tokio::test]
+    async fn says_plainly_that_it_cannot_open_an_encrypted_client_key() {
+        // The profile store keeps a key passphrase, so the UI offers one. The
+        // TLS stack here cannot decrypt a key, and a parse error the user has
+        // to guess at is worse than being told.
+        let dir = TempDir::new("ctl-keypass");
+        let (_rec, ctl) = controller(&dir);
+        let mut req = connect_request(1);
+        req.tls.enabled = true;
+        req.tls.client_key_passphrase = Some("secret".into());
+
+        let err = ctl.connect(req).await.unwrap_err();
+        assert!(
+            err.contains("encrypted client key") && err.contains("decrypt"),
+            "the refusal must say what to do: {err}"
+        );
     }
 
     #[tokio::test]

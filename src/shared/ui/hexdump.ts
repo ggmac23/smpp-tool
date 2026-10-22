@@ -1,4 +1,4 @@
-import type { WirePdu } from "../api";
+import type { WirePdu } from "./protocol";
 
 const BYTES_PER_ROW = 16;
 

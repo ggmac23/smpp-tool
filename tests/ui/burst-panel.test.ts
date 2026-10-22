@@ -7,8 +7,12 @@ import {
   BURST_COLUMNS_WITH_DLR,
   BURST_COLUMNS_NO_DLR,
 } from "../../src/shared/ui/stats";
-import { MAX_BURST, MAX_RATE } from "../../src/main/recipients";
-import type { BurstStats, BurstRow } from "../../src/main/burst";
+import {
+  MAX_BURST,
+  MAX_RATE,
+  type BurstStats,
+  type BurstRow,
+} from "../../src/shared/ui/protocol";
 
 const stats: BurstStats = {
   messages: 100,
@@ -129,6 +133,7 @@ describe("formatBurstRow", () => {
     pdus: 3,
     messageId: "A7F2",
     commandStatus: 0,
+    statusName: "ESME_ROK",
     submitLatencyMs: 14,
     dlrState: "DELIVRD",
     dlrLatencyMs: 220,
@@ -149,16 +154,26 @@ describe("formatBurstRow", () => {
 
   it("leaves a column blank while its value has not arrived", () => {
     const pending = formatBurstRow(
-      { ...row, messageId: null, commandStatus: null, submitLatencyMs: null, dlrState: null, dlrLatencyMs: null },
+      {
+        ...row,
+        messageId: null,
+        commandStatus: null,
+        statusName: "",
+        submitLatencyMs: null,
+        dlrState: null,
+        dlrLatencyMs: null,
+      },
       BURST_COLUMNS_WITH_DLR
     );
     expect(pending.slice(3)).toEqual(["", "", "", "", ""]);
   });
 
-  it("names a timeout rather than showing a negative status number", () => {
-    expect(formatBurstRow({ ...row, commandStatus: -1 }, BURST_COLUMNS_WITH_DLR)[4]).toMatch(
-      /timeout|no response/i
-    );
+  it("shows the status name the backend spelt out, timeouts included", () => {
+    // The backend turns a send that never came back into words rather than
+    // 0xffffffff, so the renderer has no status table and no special case.
+    expect(
+      formatBurstRow({ ...row, statusName: "no response" }, BURST_COLUMNS_WITH_DLR)[4]
+    ).toMatch(/no response/i);
   });
 
   it("drops the DLR cells when the columns do not include them", () => {

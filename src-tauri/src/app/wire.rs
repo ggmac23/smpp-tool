@@ -96,6 +96,10 @@ pub struct WireTlsOptions {
     pub client_cert_path: Option<String>,
     #[serde(default)]
     pub client_key_path: Option<String>,
+    /// The passphrase for an encrypted client key. Carried so the backend can
+    /// say plainly that it cannot open one.
+    #[serde(default)]
+    pub client_key_passphrase: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -251,12 +255,15 @@ pub struct WireBurstRow {
 pub fn to_wire_burst_row(row: &BurstRow) -> WireBurstRow {
     WireBurstRow {
         row: row.clone(),
-        // Empty, not "ESME_ROK": a row with no verdict yet has not been
-        // accepted, and saying so would be a lie the user acts on.
-        status_name: row
-            .command_status
-            .map(command_status_name)
-            .unwrap_or_default(),
+        status_name: match row.command_status {
+            // A send that never came back is recorded with a status no SMSC
+            // can send. The user needs the words, not 0xffffffff.
+            Some(crate::app::burst::STATUS_NO_RESPONSE) => "no response".to_string(),
+            Some(status) => command_status_name(status),
+            // Empty, not "ESME_ROK": a row with no verdict yet has not been
+            // accepted, and saying so would be a lie the user acts on.
+            None => String::new(),
+        },
     }
 }
 
@@ -458,6 +465,52 @@ mod tests {
     }
 
     #[test]
+    fn a_renderers_request_survives_the_encoder_with_everything_intact() {
+        // The renderer no longer runs a codec, so this is where the guarantee
+        // lives: a request built from form values must encode into a PDU that
+        // decodes back to the same fields, body, TLVs and destination list.
+        use crate::smpp::constants::command_id;
+        use crate::smpp::decode::decode_pdu;
+        use crate::smpp::encode::encode_pdu;
+
+        let mut req = SendPduRequest {
+            command_id: command_id("submit_multi").unwrap(),
+            ..Default::default()
+        };
+        req.fields.insert("service_type".into(), serde_json::json!("CMT"));
+        req.fields.insert("data_coding".into(), serde_json::json!(8));
+        req.octet_fields
+            .insert("short_message".into(), "7265706c616365".into());
+        req.tlvs = vec![WireTlv { tag: 0x0424, hex: "deadbeef".into() }];
+        req.dest_list = vec![
+            WireDest { flag: 1, ton: Some(1), npi: Some(1), addr: Some("393331111111".into()), dl_name: None },
+            WireDest { flag: 2, ton: None, npi: None, addr: None, dl_name: Some("my-list".into()) },
+        ];
+
+        let mut input = to_pdu_input(&req);
+        input.sequence_number = 1;
+        let pdu = decode_pdu(&encode_pdu(&input)).expect("the request must encode into a PDU");
+
+        assert_eq!(pdu.str_field("service_type").as_deref(), Some("CMT"));
+        assert_eq!(pdu.u32_field("data_coding"), Some(8));
+        assert_eq!(
+            pdu.bytes_field("short_message"),
+            Some(vec![0x72, 0x65, 0x70, 0x6c, 0x61, 0x63, 0x65])
+        );
+        // The count is derived here, not sent by the renderer.
+        assert_eq!(pdu.u32_field("number_of_dests"), Some(2));
+        assert_eq!(pdu.tlvs.len(), 1);
+        assert_eq!(pdu.tlvs[0].value, vec![0xde, 0xad, 0xbe, 0xef]);
+        match pdu.fields.get("dest_address") {
+            Some(FieldValue::DestList(entries)) => {
+                assert_eq!(entries[0].addr.as_deref(), Some("393331111111"));
+                assert_eq!(entries[1].dl_name.as_deref(), Some("my-list"));
+            }
+            other => panic!("the destination list was lost: {other:?}"),
+        }
+    }
+
+    #[test]
     fn renders_a_trace_entry_with_its_bytes_and_its_status_name() {
         let entry = TraceEntry {
             seq: 7,
@@ -509,6 +562,19 @@ mod tests {
                 "the renderer's `{key}` is missing from {json}"
             );
         }
+    }
+
+    #[test]
+    fn says_no_response_rather_than_a_hex_number_for_a_timed_out_row() {
+        // A send that never came back is recorded with a status no SMSC can
+        // send. The user needs the words, not 0xffffffff.
+        let row = crate::app::burst::BurstRow {
+            id: "r0".into(),
+            recipient: "393331234567".into(),
+            command_status: Some(crate::app::burst::STATUS_NO_RESPONSE),
+            ..Default::default()
+        };
+        assert_eq!(to_wire_burst_row(&row).status_name, "no response");
     }
 
     #[test]

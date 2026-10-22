@@ -1,7 +1,9 @@
-import { CommandId } from "../../smpp/constants";
-import { TLV_MESSAGE_PAYLOAD, BodyPlacement } from "../../smpp/segment";
-import { encodeText } from "../../smpp/text";
-import type { SendPduRequest } from "../api";
+import {
+  CommandId,
+  TLV_MESSAGE_PAYLOAD,
+  type BodyPlacement,
+  type SendPduRequest,
+} from "./protocol";
 import { TON_NPI_PRESETS } from "./connection";
 import { SCHEDULE_DELIVERY, VALIDITY_PERIODS, timeFor } from "./fields";
 
@@ -26,10 +28,6 @@ function messageIdWarnings(messageId: string): string[] {
     ];
   }
   return [];
-}
-
-function hex(text: string, dataCoding: number): string {
-  return encodeText(text, dataCoding).bytes.toString("hex");
 }
 
 /** Shared by query_sm, cancel_sm, replace_sm and the broadcast family. */
@@ -85,7 +83,7 @@ export function buildCancelInput(v: MessageOpsFormValues): Built {
   };
 }
 
-export function buildReplaceInput(v: MessageOpsFormValues): Built {
+export function buildReplaceInput(v: MessageOpsFormValues, bodyHex: string): Built {
   const src = tonNpi(v.sourceTonNpiLabel);
   return {
     warnings: messageIdWarnings(v.messageId),
@@ -101,7 +99,7 @@ export function buildReplaceInput(v: MessageOpsFormValues): Built {
         registered_delivery: v.registeredDelivery,
         sm_default_msg_id: v.smDefaultMsgId,
       },
-      octetFields: { short_message: hex(v.text, v.dataCoding) },
+      octetFields: { short_message: bodyHex },
     },
   };
 }
@@ -117,7 +115,7 @@ export interface BroadcastFormValues extends MessageOpsFormValues {
  * `broadcast_multi` command in SMPP, so the three real commands are offered
  * instead of inventing one.
  */
-export function buildBroadcastInput(v: BroadcastFormValues): Built {
+export function buildBroadcastInput(v: BroadcastFormValues, bodyHex: string): Built {
   const src = tonNpi(v.sourceTonNpiLabel);
   const warnings = messageIdWarnings(v.messageId);
 
@@ -154,7 +152,7 @@ export function buildBroadcastInput(v: BroadcastFormValues): Built {
         data_coding: v.dataCoding,
         sm_default_msg_id: v.smDefaultMsgId,
       },
-      tlvs: [{ tag: TLV_MESSAGE_PAYLOAD, hex: hex(v.text, v.dataCoding) }],
+      tlvs: [{ tag: TLV_MESSAGE_PAYLOAD, hex: bodyHex }],
     },
   };
 }
@@ -187,7 +185,7 @@ function lines(text: string): string[] {
     .filter((l) => l.length > 0);
 }
 
-export function buildMultiInput(v: MultiFormValues): Built {
+export function buildMultiInput(v: MultiFormValues, bodyHex: string): Built {
   const src = tonNpi(v.sourceTonNpiLabel);
   const dst = tonNpi(v.destTonNpiLabel);
 
@@ -225,7 +223,7 @@ export function buildMultiInput(v: MultiFormValues): Built {
         sm_default_msg_id: v.smDefaultMsgId,
       },
       destList,
-      octetFields: { short_message: hex(v.text, v.dataCoding) },
+      octetFields: { short_message: bodyHex },
     },
   };
 }
@@ -247,7 +245,7 @@ export interface DataSmFormValues {
  * data_sm has no short_message field at all, so its body always travels in
  * the message_payload TLV whatever the placement selector says.
  */
-export function buildDataSmInput(v: DataSmFormValues): Built {
+export function buildDataSmInput(v: DataSmFormValues, bodyHex: string): Built {
   const src = tonNpi(v.sourceTonNpiLabel);
   const dst = tonNpi(v.destTonNpiLabel);
   return {
@@ -266,7 +264,7 @@ export function buildDataSmInput(v: DataSmFormValues): Built {
         registered_delivery: v.registeredDelivery,
         data_coding: v.dataCoding,
       },
-      tlvs: [{ tag: TLV_MESSAGE_PAYLOAD, hex: hex(v.text, v.dataCoding) }],
+      tlvs: [{ tag: TLV_MESSAGE_PAYLOAD, hex: bodyHex }],
     },
   };
 }

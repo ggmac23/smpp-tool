@@ -122,7 +122,9 @@ qx.Class.define("smppclient.MultiForm", {
     },
 
     getDestinationCount() {
-      return SmppForms.buildMultiInput(this.getFormValues()).request.destList.length;
+      // The body plays no part in counting destinations, so an empty one is
+      // enough and the count stays synchronous.
+      return SmppForms.buildMultiInput(this.getFormValues(), "").request.destList.length;
     },
 
     __refreshCount() {
@@ -131,10 +133,18 @@ qx.Class.define("smppclient.MultiForm", {
     },
 
     send() {
-      const built = SmppForms.buildMultiInput(this.getFormValues());
+      const values = this.getFormValues();
+      // The body is encoded by the backend: no widget carries a codec.
+      return this.__api
+        .call("encode_body", { text: values.text, dataCoding: values.dataCoding, packing: "unpacked" })
+        .then(encoded => this.__send(SmppForms.buildMultiInput(values, encoded.hex)))
+        .catch(e => this.fireDataEvent("notice", "submit_multi failed: " + e.message));
+    },
+
+    __send(built) {
       built.warnings.forEach(w => this.fireDataEvent("notice", w));
       return this.__api
-        .call("sendPdu", built.request)
+        .call("send_pdu", { req: built.request })
         .then(result =>
           this.fireDataEvent(
             "notice",

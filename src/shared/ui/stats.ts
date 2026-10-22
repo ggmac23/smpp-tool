@@ -1,7 +1,10 @@
-import { MAX_BURST, MAX_RATE } from "../../main/recipients";
-import { statusName } from "../../smpp/constants";
-import type { BurstStats, BurstRow } from "../../main/burst";
-import type { BindMode } from "../../main/session";
+import {
+  MAX_BURST,
+  MAX_RATE,
+  type BurstStats,
+  type BurstRow,
+  type BindMode,
+} from "./protocol";
 
 export interface StatEntry {
   label: string;
@@ -94,14 +97,6 @@ export function burstColumns(mode: BindMode | null): string[] {
     : BURST_COLUMNS_NO_DLR;
 }
 
-const TIMEOUT_STATUS = -1;
-
-function statusCell(commandStatus: number | null): string {
-  if (commandStatus === null) return "";
-  if (commandStatus === TIMEOUT_STATUS) return "no response";
-  return statusName(commandStatus);
-}
-
 function blankIfNull(n: number | null): string {
   return n === null ? "" : String(n);
 }
@@ -113,7 +108,7 @@ export function formatBurstRow(row: BurstRow, columns: string[]): string[] {
     Body: row.body,
     PDUs: String(row.pdus),
     message_id: row.messageId ?? "",
-    Status: statusCell(row.commandStatus),
+    Status: row.statusName,
     "Submit ms": blankIfNull(row.submitLatencyMs),
     DLR: row.dlrState ?? "",
     "DLR ms": blankIfNull(row.dlrLatencyMs),

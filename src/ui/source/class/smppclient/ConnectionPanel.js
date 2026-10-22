@@ -130,7 +130,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
       browse.setWidth(28);
       browse.addListener("execute", () => {
         this.__api
-          .call("pickFile", kind)
+          .call("pick_file", { kind: kind })
           .then(picked => {
             if (picked && picked.path) {
               field.setValue(picked.path);
@@ -294,8 +294,8 @@ qx.Class.define("smppclient.ConnectionPanel", {
       warnings.forEach(w => this.fireDataEvent("notice", w));
 
       this.__api
-        .call("connect", SmppForms.buildConnectRequest(values))
-        .then(() => this.__api.call("bind", SmppForms.buildBindRequest(values)))
+        .call("connect", { req: SmppForms.buildConnectRequest(values) })
+        .then(() => this.__api.call("bind", { req: SmppForms.buildBindRequest(values) }))
         .then(result => {
           this.fireDataEvent(
             "notice",
@@ -319,7 +319,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
     /** Send one enquire_link. */
     enquireLink() {
       this.__api
-        .call("sendPdu", { commandId: 0x00000015 })
+        .call("send_pdu", { req: { commandId: 0x00000015 } })
         .then(() => this.fireDataEvent("notice", "enquire_link answered"))
         .catch(e => this.fireDataEvent("notice", "enquire_link failed: " + e.message));
     },
@@ -329,7 +329,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
 
     __reloadProfiles() {
       this.__api
-        .call("listProfiles")
+        .call("list_profiles")
         .then(profiles => {
           this.__profiles.removeAll();
           (profiles || []).forEach(p => {
@@ -361,7 +361,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
       });
 
       this.__api
-        .call("profileSecrets", profile.id)
+        .call("profile_secrets", { id: profile.id })
         .then(secrets =>
           this.setFormValues({
             password: (secrets && secrets.password) || "",
@@ -400,7 +400,11 @@ qx.Class.define("smppclient.ConnectionPanel", {
       };
 
       this.__api
-        .call("saveProfile", profile, values.password, values.clientKeyPassphrase)
+        .call("save_profile", {
+          profile: profile,
+          password: values.password,
+          keyPassphrase: values.clientKeyPassphrase
+        })
         .then(() => {
           this.fireDataEvent("notice", 'Saved profile "' + name + '"');
           this.__reloadProfiles();
@@ -414,7 +418,7 @@ qx.Class.define("smppclient.ConnectionPanel", {
         return;
       }
       this.__api
-        .call("removeProfile", profile.id)
+        .call("remove_profile", { id: profile.id })
         .then(() => {
           this.fireDataEvent("notice", 'Deleted profile "' + profile.name + '"');
           this.__reloadProfiles();

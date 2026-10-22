@@ -1,101 +1,71 @@
 import { describe, it, expect } from "vitest";
-import { parseHex, formatHex, previewPdu } from "../../src/shared/ui/hex";
-import { encodePdu } from "../../src/smpp/encode";
-import { CommandId } from "../../src/smpp/constants";
+import { parseHex, formatHex, compactHex } from "../../src/shared/ui/hex";
 
+/**
+ * The hex composer is where a tester types bytes by hand. Parsing is tolerant
+ * of what people paste and strict about what it cannot read: a typo must be
+ * reported, never silently dropped, because the whole point is that the bytes
+ * on the wire are the bytes that were typed.
+ *
+ * Decoding is not here any more. The backend decodes, so the renderer holds
+ * no codec and no Buffer.
+ */
 describe("parseHex", () => {
   it("parses hex with spaces, newlines and 0x prefixes", () => {
-    expect(parseHex("00 00\n00 10\t0x15")).toEqual(
-      Buffer.from([0x00, 0x00, 0x00, 0x10, 0x15])
-    );
+    expect(Array.from(parseHex("0x00 00\n0x00 10"))).toEqual([0x00, 0x00, 0x00, 0x10]);
   });
 
   it("parses uppercase and lowercase alike", () => {
-    expect(parseHex("DeAdBeEf")).toEqual(Buffer.from([0xde, 0xad, 0xbe, 0xef]));
+    expect(Array.from(parseHex("DEadBEef"))).toEqual([0xde, 0xad, 0xbe, 0xef]);
+  });
+
+  it("parses the separators hex dumps use", () => {
+    // Pasting de:ad:be:ef out of a dump is normal; telling the user a colon
+    // is not a hex digit would be technically true and useless.
+    expect(Array.from(parseHex("de:ad-be_ef"))).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    expect(Array.from(parseHex("de,ad\tbe ef"))).toEqual([0xde, 0xad, 0xbe, 0xef]);
   });
 
   it("parses an empty string as no bytes", () => {
-    expect(parseHex("   \n  ")).toEqual(Buffer.alloc(0));
+    expect(parseHex("").length).toBe(0);
+    expect(parseHex("   \n ").length).toBe(0);
   });
 
-  it("throws on an odd number of hex digits", () => {
-    expect(() => parseHex("4142 4")).toThrow(/odd/i);
+  it("names the character it cannot read and where it is", () => {
+    expect(() => parseHex("dead beeg")).toThrow(/"g" is not a hex digit \(at position 8\)/);
   });
 
-  it("throws on a non-hex character", () => {
-    expect(() => parseHex("41 4g")).toThrow(/g/);
+  it("refuses an odd number of digits rather than guessing a nibble", () => {
+    // Guessing a zero would send a byte the user never typed.
+    expect(() => parseHex("abc")).toThrow(/odd number of hex digits \(3\)/);
   });
 
-  it("names the offending character rather than failing vaguely", () => {
-    expect(() => parseHex("zz")).toThrow(/"z"/);
+  it("returns bytes, not a Buffer: the renderer has no Node globals", () => {
+    expect(parseHex("ff")).toBeInstanceOf(Uint8Array);
   });
 });
 
 describe("formatHex", () => {
-  it("formats a buffer as space-separated hex", () => {
-    expect(formatHex(Buffer.from([0x00, 0x0a, 0xff]))).toBe("00 0a ff");
+  it("pads every byte to two digits", () => {
+    expect(formatHex(new Uint8Array([0x00, 0x0f, 0xff]))).toBe("00 0f ff");
+  });
+
+  it("re-spaces hex text it is handed", () => {
+    expect(formatHex("0x000000100x00000015")).toBe("00 00 00 10 00 00 00 15");
   });
 
   it("formats no bytes as an empty string", () => {
-    expect(formatHex(Buffer.alloc(0))).toBe("");
+    expect(formatHex(new Uint8Array(0))).toBe("");
   });
 
-  it("round-trips a traced PDU's raw bytes through format and parse", () => {
-    const bytes = encodePdu({
-      commandId: CommandId.submit_sm,
-      sequenceNumber: 42,
-      fields: { source_addr: "3933", destination_addr: "3934" },
-    });
-    expect(parseHex(formatHex(bytes))).toEqual(bytes);
-  });
-
-  it("accepts a plain hex string as well as a buffer", () => {
-    expect(formatHex("000aff")).toBe("00 0a ff");
+  it("round-trips a traced PDU's hex through parse and format", () => {
+    const hex = "0000001000000015000000000000000c";
+    expect(compactHex(formatHex(hex))).toBe(hex);
   });
 });
 
-describe("previewPdu", () => {
-  const good = encodePdu({
-    commandId: CommandId.submit_sm,
-    sequenceNumber: 42,
-    fields: { source_addr: "393331234567", destination_addr: "393337654321" },
-  });
-
-  it("previews a valid PDU's decoded form", () => {
-    const p = previewPdu(good);
-    expect(p.ok).toBe(true);
-    expect(p.summary).toContain("submit_sm");
-    expect(p.fields.find((f) => f.name === "source_addr")?.value).toBe("393331234567");
-    expect(p.byteCount).toBe(good.length);
-  });
-
-  it("reports the bytes as sendable when it decodes", () => {
-    expect(previewPdu(good).sendable).toBe(true);
-  });
-
-  it("previews a decode error and still reports the bytes as sendable", () => {
-    const broken = Buffer.from(good);
-    broken.writeUInt32BE(0xdeadbeef, 0);
-    const p = previewPdu(broken);
-    expect(p.ok).toBe(false);
-    expect(p.error).toMatch(/command_length/i);
-    expect(p.sendable).toBe(true);
-    expect(p.byteCount).toBe(broken.length);
-  });
-
-  it("reports a truncated PDU as undecodable but sendable", () => {
-    const p = previewPdu(good.subarray(0, 8));
-    expect(p.ok).toBe(false);
-    expect(p.sendable).toBe(true);
-  });
-
-  it("refuses to call no bytes sendable", () => {
-    const p = previewPdu(Buffer.alloc(0));
-    expect(p.sendable).toBe(false);
-    expect(p.byteCount).toBe(0);
-  });
-
-  it("previews bytes given as a hex string", () => {
-    expect(previewPdu(formatHex(good)).summary).toContain("submit_sm");
+describe("compactHex", () => {
+  it("is what the commands take: no separators", () => {
+    expect(compactHex("de ad be ef")).toBe("deadbeef");
   });
 });

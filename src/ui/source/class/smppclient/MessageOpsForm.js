@@ -129,8 +129,12 @@ qx.Class.define("smppclient.MessageOpsForm", {
       }
     },
 
-    /** The request the form currently describes, without sending it. */
-    build() {
+    /**
+     * The request the form currently describes, without sending it. `bodyHex`
+     * is the encoded body for the commands that carry one; query_sm and
+     * cancel_sm ignore it.
+     */
+    build(bodyHex) {
       const values = this.getFormValues();
       const command = this.getCommand();
       switch (command) {
@@ -139,19 +143,28 @@ qx.Class.define("smppclient.MessageOpsForm", {
         case "cancel_sm":
           return SmppForms.buildCancelInput(values);
         case "replace_sm":
-          return SmppForms.buildReplaceInput(values);
+          return SmppForms.buildReplaceInput(values, bodyHex || "");
         default:
           return SmppForms.buildBroadcastInput(
-            qx.lang.Object.mergeWith({ kind: command }, values, false)
+            qx.lang.Object.mergeWith({ kind: command }, values, false),
+            bodyHex || ""
           );
       }
     },
 
     send() {
-      const built = this.build();
+      const values = this.getFormValues();
+      // The body is encoded by the backend: no widget carries a codec.
+      return this.__api
+        .call("encode_body", { text: values.text, dataCoding: values.dataCoding, packing: "unpacked" })
+        .then(encoded => this.__send(this.build(encoded.hex)))
+        .catch(e => this.fireDataEvent("notice", this.getCommand() + " failed: " + e.message));
+    },
+
+    __send(built) {
       built.warnings.forEach(w => this.fireDataEvent("notice", w));
       return this.__api
-        .call("sendPdu", built.request)
+        .call("send_pdu", { req: built.request })
         .then(result =>
           this.fireDataEvent(
             "notice",

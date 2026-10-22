@@ -1,6 +1,11 @@
-import { DataCoding, RegisteredDelivery, EsmClass } from "../../smpp/constants";
-import type { SegmentationMode, Gsm7Packing } from "../../smpp/text";
-import type { BodyPlacement } from "../../smpp/segment";
+import {
+  DataCoding,
+  RegisteredDelivery,
+  EsmClass,
+  type SegmentationMode,
+  type Gsm7Packing,
+  type BodyPlacement,
+} from "./protocol";
 import type { Option } from "./connection";
 
 /** registered_delivery: 0-3 plus the 16-19 intermediate-notification variants. */

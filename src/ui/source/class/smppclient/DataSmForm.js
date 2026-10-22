@@ -85,10 +85,36 @@ qx.Class.define("smppclient.DataSmForm", {
     },
 
     send() {
-      const built = SmppForms.buildDataSmInput(this.getFormValues());
+      const values = this.getFormValues();
+      // The body is encoded by the backend: no widget carries a codec.
+      return this.__encodeBody(values)
+        .then(hex => SmppForms.buildDataSmInput(values, hex))
+        .then(built => this.__send(built))
+        .catch(e => this.fireDataEvent("notice", "data_sm failed: " + e.message));
+    },
+
+    __encodeBody(values) {
+      return this.__api
+        .call("encode_body", { text: values.text, dataCoding: values.dataCoding, packing: "unpacked" })
+        .then(encoded => {
+          if (encoded.unmappable.length > 0) {
+            this.fireDataEvent(
+              "notice",
+              "data_coding " +
+                values.dataCoding +
+                " cannot represent " +
+                encoded.unmappable.join(" ") +
+                "; those characters go out as question marks."
+            );
+          }
+          return encoded.hex;
+        });
+    },
+
+    __send(built) {
       built.warnings.forEach(w => this.fireDataEvent("notice", w));
       return this.__api
-        .call("sendPdu", built.request)
+        .call("send_pdu", { req: built.request })
         .then(result =>
           this.fireDataEvent(
             "notice",

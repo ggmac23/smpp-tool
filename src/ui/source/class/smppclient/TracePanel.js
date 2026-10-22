@@ -190,13 +190,13 @@ qx.Class.define("smppclient.TracePanel", {
       this.__seqByRow = [];
       this.__hexView.clear();
       this.__fieldList.setValue("");
-      this.__api.call("clearTrace").catch(() => undefined);
+      this.__api.call("clear_trace").catch(() => undefined);
       this.__refreshDropped();
     },
 
     export(format) {
       this.__api
-        .call("exportTrace", format)
+        .call("export_trace", { format: format })
         .then(result =>
           this.fireDataEvent(
             "notice",
@@ -295,7 +295,7 @@ qx.Class.define("smppclient.TracePanel", {
       this.__hexView.setHex(pdu ? pdu.hex : "");
 
       this.__api
-        .call("pduFields", seq)
+        .call("pdu_fields", { seq: seq })
         .then(fields => {
           const rows = Array.isArray(fields) ? fields : [];
           this.__fieldList.setValue(rows.map(f => f.name + " = " + f.value).join("\n"));

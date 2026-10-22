@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import * as vm from "node:vm";
 
 /**
- * The renderer has no Node globals: no Buffer, no process, no require. The
- * shared form logic is written against Buffer, so the bundle must carry its
- * own implementation. These tests load the real bundle in a context with
- * nothing Node-ish in it and exercise the functions the widgets call.
+ * The renderer has no Node globals: no Buffer, no process, no require. It also
+ * has no codec any more — the backend encodes, decodes and segments — so the
+ * bundle needs no polyfill at all. These tests load the real bundle in a
+ * context with nothing Node-ish in it and exercise what the widgets call.
  */
 function loadBundle(): Record<string, (...args: never[]) => unknown> {
   const source = readFileSync("compiled/build/forms.js", "utf8");
@@ -57,36 +57,26 @@ describe("the forms bundle in a Node-free context", () => {
     expect(forms.REGISTERED_DELIVERY).toHaveLength(8);
   });
 
-  it("builds a submit_sm without Buffer in the environment", () => {
-    const forms = loadBundle();
-    const built = forms.buildSubmitInput(FORM as never) as {
-      requests: { octetFields: Record<string, string> }[];
-      warnings: string[];
-    };
-    expect(built.requests).toHaveLength(1);
-    expect(built.requests[0].octetFields.short_message).toBe("68656c6c6f");
-    expect(built.warnings).toEqual([]);
+  it("carries no Buffer polyfill, because nothing in it needs one", () => {
+    const source = readFileSync("compiled/build/forms.js", "utf8");
+    expect(source).not.toMatch(/\bBuffer\b/);
   });
 
-  it("segments a long message without Buffer in the environment", () => {
+  it("builds the compose arguments without Buffer in the environment", () => {
     const forms = loadBundle();
-    const built = forms.buildSubmitInput({
-      ...FORM,
-      text: "a".repeat(400),
-      segmentation: "udh",
-    } as never) as { requests: unknown[] };
-    expect(built.requests).toHaveLength(3);
+    const args = forms.buildComposeArgs(FORM as never) as Record<string, unknown>;
+    expect(args.sourceAddrTon).toBe(1);
+    expect(args.text).toBe("hello");
+    // Composing is the backend's: nothing PDU-shaped comes out of here.
+    expect(args.commandId).toBeUndefined();
+    expect(args.octetFields).toBeUndefined();
   });
 
-  it("measures UCS2 without Buffer in the environment", () => {
+  it("parses hand-typed hex without Buffer in the environment", () => {
     const forms = loadBundle();
-    const built = forms.buildSubmitInput({
-      ...FORM,
-      text: "a".repeat(71),
-      dataCoding: 8,
-      segmentation: "udh",
-    } as never) as { measurement: { parts: number } };
-    expect(built.measurement.parts).toBe(2);
+    const bytes = forms.parseHex("0x de:ad be ef" as never) as Uint8Array;
+    expect(Array.from(bytes)).toEqual([0xde, 0xad, 0xbe, 0xef]);
+    expect(forms.formatHex(bytes as never)).toBe("de ad be ef");
   });
 
   it("builds a connect request without Buffer in the environment", () => {

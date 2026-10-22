@@ -163,7 +163,7 @@ qx.Class.define("smppclient.BurstPanel", {
 
     loadCsv() {
       return this.__api
-        .call("pickFile", "csv")
+        .call("pick_file", { kind: "csv" })
         .then(picked => {
           if (!picked) {
             return;
@@ -213,7 +213,15 @@ qx.Class.define("smppclient.BurstPanel", {
       this.__model.setData([]);
 
       const values = this.__submitForm.getFormValues();
-      const built = SmppForms.buildSubmitInput(values);
+      // The template comes from the backend's own composition of the form, so
+      // a burst sends what the single-send tab would have sent. The engine
+      // puts the body and the destination in itself, per recipient.
+      return this.__api
+        .call("compose_submit", { values: SmppForms.buildComposeArgs(values) })
+        .then(built => this.__startWith(values, built));
+    },
+
+    __startWith(values, built) {
       built.warnings.forEach(w => this.fireDataEvent("notice", w));
 
       const request = {
@@ -235,17 +243,17 @@ qx.Class.define("smppclient.BurstPanel", {
 
       this.fireDataEvent("notice", "Burst started");
       return this.__api
-        .call("startBurst", request)
+        .call("start_burst", { req: request })
         .catch(e => this.fireDataEvent("notice", "Burst failed: " + e.message));
     },
 
     stop() {
-      return this.__api.call("stopBurst").catch(() => undefined);
+      return this.__api.call("stop_burst").catch(() => undefined);
     },
 
     exportCsv() {
       return this.__api
-        .call("exportBurst")
+        .call("export_burst")
         .then(result =>
           this.fireDataEvent(
             "notice",

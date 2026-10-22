@@ -2,7 +2,7 @@
  * The submit_sm form: the short set always visible, the full field set behind
  * "Show all", and a live counter under the message box.
  *
- * Every value goes to `SmppForms.buildSubmitInput`, which decides the PDUs and
+ * Every value goes to the backend's `compose_submit`, which decides the PDUs and
  * the warnings. Warnings are shown; they never stop a send.
  *
  * @ignore(SmppForms)
@@ -194,7 +194,7 @@ qx.Class.define("smppclient.SubmitForm", {
     /* ---------------------------------------------------------------- */
     /* values                                                            */
 
-    /** The form in the shape `SmppForms.buildSubmitInput` expects. */
+    /** The form in the shape `compose_submit` expects. */
     getFormValues() {
       const W = smppclient.Widgets;
       const f = this.__fields;
@@ -264,9 +264,23 @@ qx.Class.define("smppclient.SubmitForm", {
     /* ---------------------------------------------------------------- */
     /* actions                                                           */
 
+    /**
+     * Ask the backend what the form means. Composing happens there, so the
+     * counter and the send agree by construction instead of by two
+     * implementations agreeing.
+     */
+    __compose() {
+      return this.__api.call("compose_submit", {
+        values: SmppForms.buildComposeArgs(this.getFormValues())
+      });
+    },
+
     __refreshCounter() {
-      const built = SmppForms.buildSubmitInput(this.getFormValues());
-      this.__counter.setValue(SmppForms.counterText(built.measurement));
+      // The counter trails the keystroke by one round trip. It is a counter,
+      // not a gate: nothing waits for it.
+      this.__compose()
+        .then(built => this.__counter.setValue(SmppForms.counterText(built.measurement)))
+        .catch(() => undefined);
     },
 
     /**
@@ -275,7 +289,10 @@ qx.Class.define("smppclient.SubmitForm", {
      * a half-delivered concatenation is worth knowing about.
      */
     send() {
-      const built = SmppForms.buildSubmitInput(this.getFormValues());
+      return this.__compose().then(built => this.__sendComposed(built));
+    },
+
+    __sendComposed(built) {
       built.warnings.forEach(w => this.fireDataEvent("notice", w));
 
       const total = built.requests.length;
@@ -291,7 +308,7 @@ qx.Class.define("smppclient.SubmitForm", {
         }
         const request = built.requests[sent];
         sent += 1;
-        return this.__api.call("sendPdu", request).then(result => {
+        return this.__api.call("send_pdu", { req: request }).then(result => {
           if (result && result.commandStatus !== 0) {
             this.fireDataEvent(
               "notice",
