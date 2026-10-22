@@ -503,6 +503,7 @@ mod tests {
     use super::*;
     use crate::smpp::constants::{command_id, command_status, InterfaceVersion};
     use crate::testing::fake_smsc::FakeSmsc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     fn id(name: &str) -> u32 {

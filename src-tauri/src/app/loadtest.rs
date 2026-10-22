@@ -757,6 +757,7 @@ fn sustained_rate(steps: &[RampStep], requested: u32, mode: &LoadMode) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::session::BindMode;
     use crate::smpp::constants::{command_id, command_status, DataCoding, InterfaceVersion};
     use crate::smpp::encode::PduInput;
     use crate::smpp::segment::BodyPlacement;
