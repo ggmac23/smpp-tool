@@ -14,8 +14,9 @@ use crate::smpp::constants::{
 };
 use crate::smpp::decode::FieldValue;
 use crate::smpp::text::{
-    encode_text, septets_for, split_by_code_units, split_septets, Gsm7Packing, SegmentationMode,
-    GSM7_CONCAT, GSM7_SINGLE, OCTET_CONCAT, OCTET_SINGLE, UCS2_CONCAT_UNITS, UCS2_SINGLE_UNITS,
+    encode_text, septets_for, split_by_code_units, split_by_encoded_bytes, split_septets,
+    Gsm7Packing, SegmentationMode, GSM7_CONCAT, GSM7_SINGLE, OCTET_CONCAT, OCTET_SINGLE,
+    UCS2_CONCAT_UNITS, UCS2_SINGLE_UNITS,
 };
 use crate::smpp::tlv::Tlv;
 
@@ -99,11 +100,9 @@ fn chunk(text: &str, data_coding: u8, packing: Gsm7Packing) -> Vec<String> {
     if bytes <= OCTET_SINGLE {
         return vec![text.to_string()];
     }
-    let chars: Vec<char> = text.chars().collect();
-    chars
-        .chunks(OCTET_CONCAT)
-        .map(|c| c.iter().collect::<String>())
-        .collect()
+    // By encoded bytes, not by characters: a coding that takes more than one
+    // byte per character would otherwise produce parts past what a PDU holds.
+    split_by_encoded_bytes(text, data_coding, packing, OCTET_CONCAT)
 }
 
 fn random_ref(max: u16) -> u16 {
@@ -293,6 +292,52 @@ mod tests {
             })
             .collect();
         assert_eq!(joined, text);
+    }
+
+    #[test]
+    fn the_counter_and_the_segmenter_agree_for_a_multi_byte_coding() {
+        // Shift-JIS is on the form's data_coding list and takes two bytes per
+        // character. Counting parts from the byte total while cutting by
+        // character made the two disagree, and produced a body of 274 octets
+        // whose sm_length wrapped to 18 with no warning.
+        let text: String = std::iter::repeat_n('\u{3042}', 200).collect();
+        let mut o = opts(&text);
+        o.data_coding = DataCoding::JIS;
+        o.mode = SegmentationMode::Udh;
+
+        let segments = segment(&o);
+        let counted = crate::smpp::text::measure(
+            &text,
+            DataCoding::JIS,
+            SegmentationMode::Udh,
+            Gsm7Packing::Unpacked,
+        );
+
+        assert_eq!(
+            segments.len(),
+            counted.parts,
+            "the counter says {} parts and {} were composed",
+            counted.parts,
+            segments.len()
+        );
+        for (i, seg) in segments.iter().enumerate() {
+            let len = body(seg).len();
+            assert!(
+                len <= 140,
+                "part {} is {len} octets, past what a single PDU carries",
+                i + 1
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_multi_byte_message_stays_inside_one_pdu() {
+        // 70 two-byte characters is 140 octets: the last size that fits.
+        let text: String = std::iter::repeat_n('\u{3042}', 70).collect();
+        let mut o = opts(&text);
+        o.data_coding = DataCoding::JIS;
+        o.mode = SegmentationMode::Udh;
+        assert_eq!(segment(&o).len(), 1);
     }
 
     #[test]

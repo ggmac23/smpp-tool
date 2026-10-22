@@ -143,18 +143,6 @@ pub fn compose_submit(v: &SubmitFormValues) -> ComposedSubmit {
             measurement.unmappable.join(" ")
         ));
     }
-    if v.placement == BodyPlacement::ShortMessage
-        && measurement.parts == 1
-        && measurement.bytes > SHORT_MESSAGE_MAX
-    {
-        warnings.push(format!(
-            "the body is {} octets but sm_length is a single octet, so it will be written as \
-             {}. Segment the message or use message_payload. Sending it anyway.",
-            measurement.bytes,
-            measurement.bytes & 0xff
-        ));
-    }
-
     let segments = segment(&SegmentOptions {
         text: v.text.clone(),
         data_coding: v.data_coding,
@@ -165,6 +153,31 @@ pub fn compose_submit(v: &SubmitFormValues) -> ComposedSubmit {
         ref_num: None,
         esm_class: v.esm_class,
     });
+
+    // The warning belongs to the body that was composed, not to the text that
+    // was typed: a hand-written UDH adds octets, and a part of a segmented
+    // message is not the whole message. Guarding on "one part" used to let a
+    // multi-part overflow pass in silence.
+    if v.placement == BodyPlacement::ShortMessage {
+        for (index, seg) in segments.iter().enumerate() {
+            let Some(FieldValue::Bytes(body)) = seg.fields.get("short_message") else {
+                continue;
+            };
+            if body.len() > SHORT_MESSAGE_MAX {
+                let which = if segments.len() == 1 {
+                    "the body is".to_string()
+                } else {
+                    format!("part {} of {} is", index + 1, segments.len())
+                };
+                warnings.push(format!(
+                    "{which} {} octets but sm_length is a single octet, so it will be written \
+                     as {}. Segment the message or use message_payload. Sending it anyway.",
+                    body.len(),
+                    body.len() & 0xff
+                ));
+            }
+        }
+    }
 
     let manual_tlvs: Vec<WireTlv> = v
         .tlvs
@@ -439,6 +452,43 @@ mod tests {
         assert!(
             out.warnings.iter().any(|w| w.contains("sm_length")),
             "the overflow must be named: {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn warns_about_the_body_that_was_actually_composed_not_the_text_that_was_typed() {
+        // A hand-written UDH turns concatenation off, so one PDU carries the
+        // UDH octets as well as the body. The warning used to name the text's
+        // own length, so it told the user a number the wire never saw.
+        let mut v = form(&"a".repeat(400));
+        v.udh_hex = "050003010201".into();
+        let out = compose_submit(&v);
+
+        assert_eq!(out.requests.len(), 1);
+        let body = out.requests[0].octet_fields.get("short_message").unwrap();
+        let octets = body.len() / 2;
+        assert_eq!(octets, 406, "6 UDH octets and 400 of text");
+        assert!(
+            out.warnings
+                .iter()
+                .any(|w| w.contains("406") && w.contains(&(406 & 0xff).to_string())),
+            "the warning should name the body that was composed: {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn warns_when_a_segment_overflows_even_though_there_are_several() {
+        // The guard used to be "one part only", so a multi-part message whose
+        // parts were each too long said nothing at all.
+        let mut v = form(&"\u{3042}".repeat(200));
+        v.data_coding = 5;
+        v.segmentation = SegmentationMode::None;
+        let out = compose_submit(&v);
+        assert!(
+            out.warnings.iter().any(|w| w.contains("sm_length")),
+            "an overflowing body must be named whatever the part count: {:?}",
             out.warnings
         );
     }

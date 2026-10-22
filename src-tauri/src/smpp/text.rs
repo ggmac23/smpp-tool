@@ -295,6 +295,47 @@ pub fn split_septets(septets: &[u8], limit: usize) -> Vec<Vec<u8>> {
 
 /// Split text into chunks of at most `limit_units` UTF-16 code units, never
 /// inside a surrogate pair.
+/// Splits text so that each piece encodes to at most `limit` octets under
+/// `data_coding`, cutting only on character boundaries.
+///
+/// Codings outside GSM 03.38 and UCS2 are not one byte per character —
+/// Shift-JIS takes two for most of its range — so counting parts from the
+/// byte total while cutting by character made the counter and the segmenter
+/// disagree, and produced bodies past what a single PDU carries. Both now
+/// come through here.
+pub fn split_by_encoded_bytes(
+    text: &str,
+    data_coding: u8,
+    packing: Gsm7Packing,
+    limit: usize,
+) -> Vec<String> {
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+
+    for c in text.chars() {
+        let width = encode_text(&c.to_string(), data_coding, packing)
+            .bytes
+            .len();
+        // A single character wider than the limit cannot be split any
+        // further: it goes out on its own rather than being dropped.
+        if current_len + width > limit && !current.is_empty() {
+            out.push(std::mem::take(&mut current));
+            current_len = 0;
+        }
+        current.push(c);
+        current_len += width;
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
 pub fn split_by_code_units(text: &str, limit_units: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut chunk = String::new();
@@ -357,7 +398,8 @@ pub fn measure(
         let parts = if !concatenating || encoded.bytes.len() <= OCTET_SINGLE {
             1
         } else {
-            encoded.bytes.len().div_ceil(OCTET_CONCAT)
+            // The same splitter the segmenter uses, so the two cannot differ.
+            split_by_encoded_bytes(text, data_coding, packing, OCTET_CONCAT).len()
         };
         (encoded.bytes.len() * 8, parts)
     };
