@@ -25,8 +25,14 @@ fn bundles_for_macos_without_signing() {
         .iter()
         .map(|t| t.as_str().unwrap_or_default())
         .collect();
-    assert!(targets.contains(&"app"), "a .app is what gets launched: {targets:?}");
-    assert!(targets.contains(&"dmg"), "a .dmg is what gets handed to someone: {targets:?}");
+    assert!(
+        targets.contains(&"app"),
+        "a .app is what gets launched: {targets:?}"
+    );
+    assert!(
+        targets.contains(&"dmg"),
+        "a .dmg is what gets handed to someone: {targets:?}"
+    );
 
     // Signing is the user's to arrange with their own certificate. A pinned
     // identity here would fail the build on every other machine.
@@ -61,7 +67,11 @@ fn does_not_package_the_test_certificates() {
     if dist.exists() {
         let mut offenders = Vec::new();
         walk(&dist, &mut |path| {
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_lowercase();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_lowercase();
             if name.ends_with(".key") || name.ends_with(".pem") || name.ends_with(".crt") {
                 offenders.push(path.display().to_string());
             }

@@ -129,6 +129,18 @@ export interface CorrelationConfig {
   stripLeadingZeros: boolean;
 }
 
+/**
+ * What the backend correlates receipts by, when nothing has been changed.
+ * Every option on, because an aggregator that does something unusual with a
+ * message id is exactly what this tool is pointed at.
+ */
+export const DEFAULT_CORRELATION: CorrelationConfig = {
+  preferTlv: true,
+  parseText: true,
+  normaliseRadix: true,
+  stripLeadingZeros: true,
+};
+
 export interface DescribedField {
   name: string;
   value: string;

@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
     "module": "node16",
     "moduleResolution": "node16",
     "strict": true,
@@ -12,5 +15,8 @@
     "declaration": false,
     "resolveJsonModule": true
   },
-  "include": ["src", "tests"]
+  "include": [
+    "src",
+    "tests"
+  ]
 }

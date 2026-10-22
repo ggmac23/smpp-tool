@@ -10,7 +10,7 @@
  * arrives before a single bind goes out.
  */
 import { MAX_BURST, MAX_RATE } from "./protocol";
-import type { StatEntry } from "./stats";
+import type { LimitCheck, StatEntry } from "./stats";
 
 /** Connections this build opens at once. The backend holds the same number. */
 export const MAX_CONNECTIONS = 16;
@@ -107,11 +107,6 @@ export interface LoadProgress {
   currentRatePerSec: number;
   achievedRatePerSec: number;
   errors: number;
-}
-
-export interface LimitCheck {
-  ok: boolean;
-  reason: string;
 }
 
 function kindOf(modeLabel: string): LoadModeKind {

@@ -332,7 +332,11 @@ where
             break;
         }
 
-        shared.lock().unwrap().raw_in.extend_from_slice(&buf[..read]);
+        shared
+            .lock()
+            .unwrap()
+            .raw_in
+            .extend_from_slice(&buf[..read]);
 
         let raws = match framer.push(&buf[..read]) {
             Ok(raws) => raws,

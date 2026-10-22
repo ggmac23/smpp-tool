@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::app::burst::BurstDone;
@@ -210,8 +210,8 @@ pub async fn set_trace_cap(ctl: Ctl<'_>, cap: usize) -> Result<(), String> {
 /// Asks for a destination and writes the trace there. `None` means the user
 /// closed the dialog, which is not an error.
 #[tauri::command]
-pub async fn export_trace(
-    app: AppHandle,
+pub async fn export_trace<R: Runtime>(
+    app: AppHandle<R>,
     ctl: Ctl<'_>,
     format: ExportFormat,
 ) -> Result<Option<String>, String> {
@@ -223,7 +223,10 @@ pub async fn export_trace(
 }
 
 #[tauri::command]
-pub async fn export_burst(app: AppHandle, ctl: Ctl<'_>) -> Result<Option<String>, String> {
+pub async fn export_burst<R: Runtime>(
+    app: AppHandle<R>,
+    ctl: Ctl<'_>,
+) -> Result<Option<String>, String> {
     let Some(path) = ask_save(&app, "burst.csv").await else {
         return Ok(None);
     };
@@ -273,7 +276,10 @@ pub struct PickedFile {
 }
 
 #[tauri::command]
-pub async fn pick_file(app: AppHandle, kind: String) -> Result<Option<PickedFile>, String> {
+pub async fn pick_file<R: Runtime>(
+    app: AppHandle<R>,
+    kind: String,
+) -> Result<Option<PickedFile>, String> {
     let filters: &[(&str, &[&str])] = match kind.as_str() {
         "csv" => &[("Recipient list", &["csv", "txt"])],
         "ca" => &[("Certificate", &["pem", "crt", "cer"])],
@@ -296,7 +302,7 @@ pub async fn pick_file(app: AppHandle, kind: String) -> Result<Option<PickedFile
 
 /* -------------------------------------------------------------------- */
 
-async fn ask_open(app: &AppHandle, filters: &[(&str, &[&str])]) -> Option<String> {
+async fn ask_open<R: Runtime>(app: &AppHandle<R>, filters: &[(&str, &[&str])]) -> Option<String> {
     let mut builder = app.dialog().file();
     for (name, extensions) in filters {
         builder = builder.add_filter(*name, extensions);
@@ -308,7 +314,7 @@ async fn ask_open(app: &AppHandle, filters: &[(&str, &[&str])]) -> Option<String
     rx.await.ok().flatten().map(|p| p.to_string())
 }
 
-async fn ask_save(app: &AppHandle, suggested: &str) -> Option<String> {
+async fn ask_save<R: Runtime>(app: &AppHandle<R>, suggested: &str) -> Option<String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
@@ -322,7 +328,7 @@ async fn ask_save(app: &AppHandle, suggested: &str) -> Option<String> {
 /// The handler list. It lives beside `COMMAND_NAMES` on purpose: a command
 /// declared but never registered compiles cleanly and then does nothing at
 /// runtime, and a test here checks the two lists against each other.
-pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
+pub fn handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         connect,
         disconnect,
@@ -357,11 +363,11 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
 }
 
 /// The production emitter: straight to the webview.
-struct TauriEmitter {
-    app: AppHandle,
+struct TauriEmitter<R: Runtime> {
+    app: AppHandle<R>,
 }
 
-impl Emitter for TauriEmitter {
+impl<R: Runtime> Emitter for TauriEmitter<R> {
     fn emit(&self, name: &str, payload: serde_json::Value) {
         use tauri::Emitter as _;
         // A window that has gone away is not an error worth reporting: there
@@ -371,7 +377,7 @@ impl Emitter for TauriEmitter {
 }
 
 /// Assembles the controller and hands it to Tauri's state.
-pub fn install(app: &AppHandle) -> Result<(), String> {
+pub fn install<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let hub = Arc::new(EventHub::new(Arc::new(TauriEmitter { app: app.clone() })));
     tauri::async_runtime::spawn(hub.clone().flush_loop(DEFAULT_BATCH));
 

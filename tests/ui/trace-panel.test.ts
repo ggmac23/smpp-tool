@@ -8,7 +8,7 @@ import {
   droppedNotice,
   pendingNotice,
 } from "../../src/shared/ui/hexdump";
-import type { WirePdu } from "../../src/shared/api";
+import type { WirePdu } from "../../src/shared/ui/protocol";
 
 const row: WirePdu = {
   seq: 1,
@@ -45,7 +45,7 @@ describe("hexDump", () => {
   });
 
   it("renders a space as a space, not a dot", () => {
-    expect(hexDumpRows("412041").ascii ?? hexDumpRows("412041")[0].ascii).toBe("A A");
+    expect(hexDumpRows("412041")[0].ascii).toBe("A A");
   });
 
   it("joins the rows into one block with offsets", () => {

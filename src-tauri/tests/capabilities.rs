@@ -36,7 +36,9 @@ fn permissions() -> Vec<String> {
 fn the_webview_may_listen_for_events() {
     let granted = permissions();
     assert!(
-        granted.iter().any(|p| p == "core:default" || p == "core:event:default"),
+        granted
+            .iter()
+            .any(|p| p == "core:default" || p == "core:event:default"),
         "nothing grants event:listen, so no event would ever reach the renderer: {granted:?}"
     );
 }
@@ -62,9 +64,7 @@ fn the_capability_covers_the_window_the_app_opens() {
 
     let cfg: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string("tauri.conf.json").unwrap()).unwrap();
-    let label = cfg["app"]["windows"][0]["label"]
-        .as_str()
-        .unwrap_or("main");
+    let label = cfg["app"]["windows"][0]["label"].as_str().unwrap_or("main");
 
     assert!(
         windows.contains(&label) || windows.contains(&"*"),

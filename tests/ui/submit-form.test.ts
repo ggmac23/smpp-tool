@@ -239,7 +239,7 @@ describe("buildComposeArgs", () => {
 
   it("builds nothing that looks like a PDU: no fields, no octets, no command id", () => {
     // If any of these appear here, the renderer has started composing again.
-    const out = args() as Record<string, unknown>;
+    const out = args() as unknown as Record<string, unknown>;
     expect(out.commandId).toBeUndefined();
     expect(out.fields).toBeUndefined();
     expect(out.octetFields).toBeUndefined();

@@ -232,12 +232,12 @@ fn main() {
                 ids.lock().unwrap().push(id.clone());
             }
 
-            let mut replies = vec![PduInput::new(
-                command_id("submit_sm_resp").unwrap(),
-                pdu.sequence_number,
-            )
-            .with_status(status)
-            .with_str("message_id", &id)];
+            let mut replies =
+                vec![
+                    PduInput::new(command_id("submit_sm_resp").unwrap(), pdu.sequence_number)
+                        .with_status(status)
+                        .with_str("message_id", &id),
+                ];
 
             // During the burst, every accepted message gets its receipt in
             // the same breath as the response. That is the race the
@@ -283,7 +283,9 @@ fn main() {
                             // in a single write: the good ones must survive.
                             let mut bytes = Vec::new();
                             bytes.extend_from_slice(&enquire_bytes(0x1001));
-                            bytes.extend_from_slice(&[0x00, 0x00, 0x00, 0x08, 0xff, 0xff, 0xff, 0xff]);
+                            bytes.extend_from_slice(&[
+                                0x00, 0x00, 0x00, 0x08, 0xff, 0xff, 0xff, 0xff,
+                            ]);
                             bytes.extend_from_slice(&enquire_bytes(0x1002));
                             smsc.send_raw(&bytes);
                         }
@@ -322,9 +324,7 @@ fn main() {
                             assert!(len < 255, "sm_length {len} does not fit one octet");
                         }
                         let shared = refs.iter().all(|r| r.0 == refs[0].0);
-                        println!(
-                            "SOCKET: concatenation refs {refs:?} shared: {shared}"
-                        );
+                        println!("SOCKET: concatenation refs {refs:?} shared: {shared}");
                     }
                     println!("PHASE {phase}: {text}");
                     results.push((phase, text));

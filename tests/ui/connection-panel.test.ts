@@ -9,7 +9,7 @@ import {
   lengthWarnings,
   ConnectionFormValues,
 } from "../../src/shared/ui/connection";
-import { DEFAULT_CORRELATION } from "../../src/main/dlr";
+import { DEFAULT_CORRELATION } from "../../src/shared/ui/protocol";
 
 const FORM: ConnectionFormValues = {
   host: "smsc.example.com",
