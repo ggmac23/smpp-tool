@@ -106,15 +106,34 @@ impl DlrCorrelator {
         }
     }
 
-    pub fn register(&mut self, message_id: &str, token: &str) {
+    /// Register a submit's message id against a caller's token.
+    ///
+    /// Returns a receipt that had already arrived for this id and was sitting
+    /// in `unmatched`. An SMSC that answers and delivers in the same breath
+    /// beats the registration, and without this the receipt would be lost for
+    /// good — which is the "never lose traffic" anti-goal in miniature.
+    pub fn register(&mut self, message_id: &str, token: &str) -> Option<Receipt> {
         let at = self.registrations.len();
         self.registrations.push(Registration {
             token: token.to_string(),
             matched: false,
         });
-        for key in normalise_id(message_id, &self.cfg) {
-            self.index.entry(key).or_default().push(at);
+        let keys = normalise_id(message_id, &self.cfg);
+        for key in &keys {
+            self.index.entry(key.clone()).or_default().push(at);
         }
+
+        // Did a receipt for this id already go unclaimed?
+        let found = self.unmatched.iter().position(|r| {
+            r.message_id
+                .as_ref()
+                .map(|id| normalise_id(id, &self.cfg).iter().any(|c| keys.contains(c)))
+                .unwrap_or(false)
+        })?;
+
+        let receipt = self.unmatched.remove(found);
+        self.registrations[at].matched = true;
+        Some(receipt)
     }
 
     pub fn match_receipt(&mut self, receipt: &Receipt) -> Option<String> {
@@ -318,6 +337,43 @@ mod tests {
             c.match_receipt(&receipt(Some("00123456"))),
             Some("row-1".into())
         );
+    }
+
+    #[test]
+    fn claims_a_receipt_that_arrived_before_its_registration() {
+        let mut c = DlrCorrelator::new(ALL);
+        // The SMSC answered and delivered in the same breath, so the receipt
+        // beat us to the message id.
+        assert_eq!(c.match_receipt(&receipt(Some("A7F2"))), None);
+        assert_eq!(c.unmatched().len(), 1);
+
+        let claimed = c.register("A7F2", "row-1");
+        assert!(claimed.is_some(), "the early receipt should be handed back");
+        assert_eq!(claimed.unwrap().state.as_deref(), Some("DELIVRD"));
+        // It is no longer unmatched: it found its row.
+        assert!(c.unmatched().is_empty());
+    }
+
+    #[test]
+    fn claims_an_early_receipt_through_a_normalised_form() {
+        let mut c = DlrCorrelator::new(ALL);
+        c.match_receipt(&receipt(Some("1193046")));
+        assert!(c.register("123456", "row-1").is_some());
+    }
+
+    #[test]
+    fn claims_only_one_early_receipt_per_registration() {
+        let mut c = DlrCorrelator::new(ALL);
+        c.match_receipt(&receipt(Some("A7F2")));
+        c.match_receipt(&receipt(Some("A7F2")));
+        assert!(c.register("A7F2", "row-1").is_some());
+        assert_eq!(c.unmatched().len(), 1);
+    }
+
+    #[test]
+    fn returns_nothing_when_no_early_receipt_is_waiting() {
+        let mut c = DlrCorrelator::new(ALL);
+        assert!(c.register("A7F2", "row-1").is_none());
     }
 
     #[test]

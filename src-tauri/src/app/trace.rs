@@ -151,7 +151,11 @@ mod tests {
         let mut s = TraceStore::new(DEFAULT_TRACE_CAP);
         s.add(entry(1, Direction::Out, "submit_sm", "first"));
         s.add(entry(2, Direction::Out, "submit_sm", "second"));
-        let summaries: Vec<_> = s.entries(None, None).iter().map(|e| e.summary.clone()).collect();
+        let summaries: Vec<_> = s
+            .entries(None, None)
+            .iter()
+            .map(|e| e.summary.clone())
+            .collect();
         assert_eq!(summaries, vec!["first", "second"]);
     }
 
@@ -161,7 +165,11 @@ mod tests {
         s.add(entry(1, Direction::Out, "submit_sm", "a"));
         s.add(entry(2, Direction::Out, "submit_sm", "b"));
         s.add(entry(3, Direction::Out, "submit_sm", "c"));
-        let summaries: Vec<_> = s.entries(None, None).iter().map(|e| e.summary.clone()).collect();
+        let summaries: Vec<_> = s
+            .entries(None, None)
+            .iter()
+            .map(|e| e.summary.clone())
+            .collect();
         assert_eq!(summaries, vec!["b", "c"]);
         assert_eq!(s.dropped(), 1);
     }
@@ -173,9 +181,27 @@ mod tests {
         s.add(entry(2, Direction::Out, "submit_sm", ""));
         s.add(entry(3, Direction::In, "submit_sm_resp", ""));
         s.add(entry(4, Direction::In, "deliver_sm", ""));
-        assert_eq!(s.counters()["submit_sm"], Counter { sent: 2, received: 0 });
-        assert_eq!(s.counters()["submit_sm_resp"], Counter { sent: 0, received: 1 });
-        assert_eq!(s.counters()["deliver_sm"], Counter { sent: 0, received: 1 });
+        assert_eq!(
+            s.counters()["submit_sm"],
+            Counter {
+                sent: 2,
+                received: 0
+            }
+        );
+        assert_eq!(
+            s.counters()["submit_sm_resp"],
+            Counter {
+                sent: 0,
+                received: 1
+            }
+        );
+        assert_eq!(
+            s.counters()["deliver_sm"],
+            Counter {
+                sent: 0,
+                received: 1
+            }
+        );
     }
 
     #[test]
@@ -203,7 +229,11 @@ mod tests {
         for i in 1..=10 {
             s.add(entry(i, Direction::Out, "submit_sm", &format!("row-{i}")));
         }
-        let page: Vec<_> = s.entries(Some(4), Some(3)).iter().map(|e| e.summary.clone()).collect();
+        let page: Vec<_> = s
+            .entries(Some(4), Some(3))
+            .iter()
+            .map(|e| e.summary.clone())
+            .collect();
         assert_eq!(page, vec!["row-4", "row-5", "row-6"]);
     }
 
@@ -231,7 +261,11 @@ mod tests {
             s.add(entry(i, Direction::Out, "submit_sm", &format!("row-{i}")));
         }
         s.set_cap(2);
-        let summaries: Vec<_> = s.entries(None, None).iter().map(|e| e.summary.clone()).collect();
+        let summaries: Vec<_> = s
+            .entries(None, None)
+            .iter()
+            .map(|e| e.summary.clone())
+            .collect();
         assert_eq!(summaries, vec!["row-4", "row-5"]);
         assert_eq!(s.dropped(), 3);
     }
@@ -244,7 +278,11 @@ mod tests {
         e.raw = vec![0xde, 0xad, 0xbe, 0xef];
         s.add(e);
         let got = &s.entries(None, None)[0];
-        assert!(got.decode_error.as_ref().unwrap().contains("below the 16-byte header"));
+        assert!(got
+            .decode_error
+            .as_ref()
+            .unwrap()
+            .contains("below the 16-byte header"));
         assert!(got.summary.is_empty());
         assert_eq!(got.raw, vec![0xde, 0xad, 0xbe, 0xef]);
     }

@@ -5,7 +5,6 @@
 //! is `Closed` and stays closed until the user starts a new one.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -73,15 +72,32 @@ pub struct SessionOptions {
 
 #[derive(Debug, Clone)]
 pub enum SessionEvent {
-    PduIn { pdu: Pdu, at: u64 },
-    PduOut { pdu: Pdu, at: u64 },
-    State { state: BindState, mode: Option<BindMode> },
+    PduIn {
+        pdu: Pdu,
+        at: u64,
+    },
+    PduOut {
+        pdu: Pdu,
+        at: u64,
+    },
+    State {
+        state: BindState,
+        mode: Option<BindMode>,
+    },
     /// A response matching no pending request, or a command we do not answer.
     Orphan(Pdu),
-    Timeout { sequence_number: u32 },
-    DecodeError { message: String, raw: Vec<u8> },
+    Timeout {
+        sequence_number: u32,
+    },
+    DecodeError {
+        message: String,
+        raw: Vec<u8>,
+    },
     /// Bytes from `send_raw` that do not decode.
-    RawOut { bytes: Vec<u8>, at: u64 },
+    RawOut {
+        bytes: Vec<u8>,
+        at: u64,
+    },
 }
 
 fn now_ms() -> u64 {
@@ -165,19 +181,21 @@ impl Session {
         if self.state() != BindState::Unbound {
             return Err(format!("cannot bind while {:?}", self.state()));
         }
-        set_state(&self.inner, &self.events, BindState::Binding, Some(opts.mode));
+        set_state(
+            &self.inner,
+            &self.events,
+            BindState::Binding,
+            Some(opts.mode),
+        );
 
-        let input = PduInput::new(
-            command_id(opts.mode.command()).expect("a bind command"),
-            0,
-        )
-        .with_str("system_id", &opts.system_id)
-        .with_str("password", &opts.password)
-        .with_str("system_type", &opts.system_type)
-        .with_num("interface_version", opts.interface_version as u32)
-        .with_num("addr_ton", opts.addr_ton as u32)
-        .with_num("addr_npi", opts.addr_npi as u32)
-        .with_str("address_range", &opts.address_range);
+        let input = PduInput::new(command_id(opts.mode.command()).expect("a bind command"), 0)
+            .with_str("system_id", &opts.system_id)
+            .with_str("password", &opts.password)
+            .with_str("system_type", &opts.system_type)
+            .with_num("interface_version", opts.interface_version as u32)
+            .with_num("addr_ton", opts.addr_ton as u32)
+            .with_num("addr_npi", opts.addr_npi as u32)
+            .with_str("address_range", &opts.address_range);
 
         let resp = match self.request(input, false).await {
             Ok(resp) => resp,
@@ -207,7 +225,10 @@ impl Session {
         set_state(&self.inner, &self.events, BindState::Unbinding, mode);
 
         let result = self
-            .request(PduInput::new(command_id("unbind").expect("unbind"), 0), false)
+            .request(
+                PduInput::new(command_id("unbind").expect("unbind"), 0),
+                false,
+            )
             .await;
         set_state(&self.inner, &self.events, BindState::Closed, None);
         result
@@ -274,7 +295,10 @@ impl Session {
             (seq, rx)
         };
 
-        let bytes = encode_pdu(&PduInput { sequence_number, ..input.clone() });
+        let bytes = encode_pdu(&PduInput {
+            sequence_number,
+            ..input.clone()
+        });
 
         if let Err(e) = self.transport.write(&bytes) {
             self.inner.lock().unwrap().inflight.remove(&sequence_number);
@@ -332,9 +356,9 @@ fn release_slot(inner: &Arc<Mutex<Inner>>) {
         if guard.closing {
             None
         } else {
-            guard.waiters.pop_front().map(|tx| {
+            guard.waiters.pop_front().inspect(|_| {
+                // The slot is handed straight to the waiter, so it stays taken.
                 guard.window_used += 1;
-                tx
             })
         }
     };
@@ -412,7 +436,10 @@ fn answer(
         );
         if transport.write(&bytes).is_ok() {
             if let Ok(out) = decode_pdu(&bytes) {
-                let _ = events.send(SessionEvent::PduOut { pdu: out, at: now_ms() });
+                let _ = events.send(SessionEvent::PduOut {
+                    pdu: out,
+                    at: now_ms(),
+                });
             }
         }
     };
@@ -495,17 +522,20 @@ mod tests {
         }
     }
 
-    async fn open(port: u16, window_size: usize, response_timeout_ms: u64) -> (Session, mpsc::UnboundedReceiver<SessionEvent>) {
-        let (transport, events) = crate::app::transport::Transport::connect(
-            crate::app::transport::TransportOptions {
+    async fn open(
+        port: u16,
+        window_size: usize,
+        response_timeout_ms: u64,
+    ) -> (Session, mpsc::UnboundedReceiver<SessionEvent>) {
+        let (transport, events) =
+            crate::app::transport::Transport::connect(crate::app::transport::TransportOptions {
                 host: "127.0.0.1".into(),
                 port,
                 tls: Default::default(),
                 connect_timeout: Duration::from_secs(3),
-            },
-        )
-        .await
-        .unwrap();
+            })
+            .await
+            .unwrap();
         Session::new(
             transport,
             events,
@@ -519,7 +549,10 @@ mod tests {
     async fn until(mut predicate: impl FnMut() -> bool) {
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         while !predicate() {
-            assert!(std::time::Instant::now() < deadline, "condition never became true");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "condition never became true"
+            );
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
@@ -542,7 +575,13 @@ mod tests {
         let smsc = FakeSmsc::new();
         let port = smsc.listen().await;
         let (session, _events) = open(port, 10, 2000).await;
-        session.bind(BindOptions { mode: BindMode::Transmitter, ..bind_opts() }).await.unwrap();
+        session
+            .bind(BindOptions {
+                mode: BindMode::Transmitter,
+                ..bind_opts()
+            })
+            .await
+            .unwrap();
         assert_eq!(smsc.received()[0].command_id, id("bind_transmitter"));
     }
 
@@ -551,7 +590,13 @@ mod tests {
         let smsc = FakeSmsc::new();
         let port = smsc.listen().await;
         let (session, _events) = open(port, 10, 2000).await;
-        session.bind(BindOptions { mode: BindMode::Receiver, ..bind_opts() }).await.unwrap();
+        session
+            .bind(BindOptions {
+                mode: BindMode::Receiver,
+                ..bind_opts()
+            })
+            .await
+            .unwrap();
         assert_eq!(smsc.received()[0].command_id, id("bind_receiver"));
     }
 
@@ -566,7 +611,10 @@ mod tests {
         assert_eq!(p.str_field("system_id").unwrap(), "esme");
         assert_eq!(p.str_field("password").unwrap(), "pw");
         assert_eq!(p.str_field("system_type").unwrap(), "SMPP");
-        assert_eq!(p.u32_field("interface_version"), Some(InterfaceVersion::V34 as u32));
+        assert_eq!(
+            p.u32_field("interface_version"),
+            Some(InterfaceVersion::V34 as u32)
+        );
     }
 
     #[tokio::test]
@@ -603,8 +651,14 @@ mod tests {
         let port = smsc.listen().await;
         let (session, _events) = open(port, 10, 2000).await;
         session.bind(bind_opts()).await.unwrap();
-        session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap();
-        session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap();
+        session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap();
+        session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap();
 
         let seqs: Vec<u32> = smsc.received().iter().map(|p| p.sequence_number).collect();
         assert_eq!(seqs, vec![1, 2, 3]);
@@ -617,7 +671,10 @@ mod tests {
         let (session, _events) = open(port, 10, 2000).await;
         session.bind(bind_opts()).await.unwrap();
 
-        let resp = session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap();
+        let resp = session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap();
         assert_eq!(resp.command_id, id("submit_sm_resp"));
         assert!(resp.str_field("message_id").is_some());
     }
@@ -636,8 +693,14 @@ mod tests {
         let (session, _events) = open(port, 10, 2000).await;
         session.bind(bind_opts()).await.unwrap();
 
-        let resp = session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap();
-        assert_eq!(resp.command_status, command_status("ESME_RTHROTTLED").unwrap());
+        let resp = session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.command_status,
+            command_status("ESME_RTHROTTLED").unwrap()
+        );
     }
 
     #[tokio::test]
@@ -645,7 +708,10 @@ mod tests {
         let smsc = FakeSmsc::new();
         let port = smsc.listen().await;
         let (session, _events) = open(port, 10, 2000).await;
-        let err = session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap_err();
+        let err = session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap_err();
         assert!(err.to_lowercase().contains("not bound"), "{err}");
     }
 
@@ -656,9 +722,10 @@ mod tests {
         let (session, _events) = open(port, 10, 2000).await;
         session.bind(bind_opts()).await.unwrap();
 
-        let bytes = crate::smpp::encode::encode_pdu(
-            &crate::smpp::encode::PduInput::new(id("enquire_link"), 4242),
-        );
+        let bytes = crate::smpp::encode::encode_pdu(&crate::smpp::encode::PduInput::new(
+            id("enquire_link"),
+            4242,
+        ));
         session.send_raw(&bytes).unwrap();
         until(|| smsc.received().len() == 2).await;
         assert_eq!(smsc.received()[1].sequence_number, 4242);
@@ -721,7 +788,10 @@ mod tests {
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         loop {
-            let event = tokio::time::timeout_at(deadline, events.recv()).await.unwrap().unwrap();
+            let event = tokio::time::timeout_at(deadline, events.recv())
+                .await
+                .unwrap()
+                .unwrap();
             if let SessionEvent::Orphan(pdu) = event {
                 assert_eq!(pdu.str_field("message_id").unwrap(), "GHOST");
                 break;
@@ -741,7 +811,10 @@ mod tests {
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         loop {
-            let event = tokio::time::timeout_at(deadline, events.recv()).await.unwrap().unwrap();
+            let event = tokio::time::timeout_at(deadline, events.recv())
+                .await
+                .unwrap()
+                .unwrap();
             if let SessionEvent::Orphan(pdu) = event {
                 assert_eq!(pdu.command_id, 0x4242);
                 break;
@@ -774,7 +847,10 @@ mod tests {
         let (session, _events) = open(port, 10, 150).await;
         session.bind(bind_opts()).await.unwrap();
 
-        let err = session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap_err();
+        let err = session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap_err();
         assert!(err.to_lowercase().contains("timed out"), "{err}");
         assert_eq!(session.pending(), 0);
     }
@@ -803,15 +879,34 @@ mod tests {
         let session = Arc::new(session);
         let first = {
             let s = session.clone();
-            tokio::spawn(async move { s.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await })
+            tokio::spawn(async move {
+                s.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+                    .await
+            })
         };
         let second = {
             let s = session.clone();
-            tokio::spawn(async move { s.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await })
+            tokio::spawn(async move {
+                s.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+                    .await
+            })
         };
 
-        assert!(first.await.unwrap().unwrap_err().to_lowercase().contains("timed out"));
-        assert_eq!(second.await.unwrap().unwrap().str_field("message_id").unwrap(), "OK");
+        assert!(first
+            .await
+            .unwrap()
+            .unwrap_err()
+            .to_lowercase()
+            .contains("timed out"));
+        assert_eq!(
+            second
+                .await
+                .unwrap()
+                .unwrap()
+                .str_field("message_id")
+                .unwrap(),
+            "OK"
+        );
     }
 
     #[tokio::test]
@@ -827,7 +922,8 @@ mod tests {
         for _ in 0..6 {
             let s = session.clone();
             sends.push(tokio::spawn(async move {
-                s.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await
+                s.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+                    .await
             }));
         }
 
@@ -848,10 +944,19 @@ mod tests {
         session.bind(bind_opts()).await.unwrap();
         session.set_next_sequence_for_test(MAX_SEQUENCE);
 
-        session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap();
-        session.send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0)).await.unwrap();
+        session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap();
+        session
+            .send(crate::smpp::encode::PduInput::new(id("submit_sm"), 0))
+            .await
+            .unwrap();
 
-        let seqs: Vec<u32> = smsc.received()[1..].iter().map(|p| p.sequence_number).collect();
+        let seqs: Vec<u32> = smsc.received()[1..]
+            .iter()
+            .map(|p| p.sequence_number)
+            .collect();
         assert_eq!(seqs, vec![MAX_SEQUENCE, 1]);
     }
 }

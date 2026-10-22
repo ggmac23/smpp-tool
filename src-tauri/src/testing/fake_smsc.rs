@@ -318,10 +318,7 @@ where
     let mut framer = PduFramer::new();
     let mut buf = vec![0u8; 8192];
 
-    loop {
-        let Ok(read) = reader.read(&mut buf).await else {
-            break;
-        };
+    while let Ok(read) = reader.read(&mut buf).await {
         if read == 0 {
             break;
         }

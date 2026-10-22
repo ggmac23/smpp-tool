@@ -2990,6 +2990,7 @@ name = "smppclient"
 version = "0.1.0"
 dependencies = [
  "encoding_rs",
+ "futures-util",
  "indexmap 2.14.2",
  "rustls",
  "rustls-pemfile",
