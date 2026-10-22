@@ -135,6 +135,25 @@ const STATUSES: &[(&str, u32)] = &[
     ("ESME_RINVOPTPARAMVAL", 0x0000_00c4),
     ("ESME_RDELIVERYFAILURE", 0x0000_00fe),
     ("ESME_RUNKNOWNERR", 0x0000_00ff),
+    ("ESME_RSERTYPUNAUTH", 0x0000_0100),
+    ("ESME_RPROHIBITED", 0x0000_0101),
+    ("ESME_RSERTYPUNAVAIL", 0x0000_0102),
+    ("ESME_RSERTYPDENIED", 0x0000_0103),
+    ("ESME_RINVDCS", 0x0000_0104),
+    ("ESME_RINVSRCADDRSUBUNIT", 0x0000_0105),
+    ("ESME_RINVDSTADDRSUBUNIT", 0x0000_0106),
+    ("ESME_RINVBCASTFREQINT", 0x0000_0107),
+    ("ESME_RINVBCASTALIAS_NAME", 0x0000_0108),
+    ("ESME_RINVBCASTAREAFMT", 0x0000_0109),
+    ("ESME_RINVNUMBCAST_AREAS", 0x0000_010a),
+    ("ESME_RINVBCASTCNTTYPE", 0x0000_010b),
+    ("ESME_RINVBCASTMSGCLASS", 0x0000_010c),
+    ("ESME_RBCASTFAIL", 0x0000_010d),
+    ("ESME_RBCASTQUERYFAIL", 0x0000_010e),
+    ("ESME_RBCASTCANCELFAIL", 0x0000_010f),
+    ("ESME_RINVBCAST_REP", 0x0000_0110),
+    ("ESME_RINVBCASTSRVGRP", 0x0000_0111),
+    ("ESME_RINVBCASTCHANIND", 0x0000_0112),
 ];
 
 pub fn command_status_name(status: u32) -> String {
@@ -146,8 +165,23 @@ pub fn command_status_name(status: u32) -> String {
 }
 
 /// The status value for a name, for tests and for composing responses.
+/// SMPP 5.0 renamed the five "optional parameter" errors to "TLV" errors.
+/// Both spellings name the same value; `command_status_name` keeps the 3.4
+/// one, which is what aggregator documentation quotes.
+const STATUS_ALIASES: &[(&str, u32)] = &[
+    ("ESME_RINVTLVSTREAM", 0x0000_00c0),
+    ("ESME_RTLVNOTALLWD", 0x0000_00c1),
+    ("ESME_RINVTLVLEN", 0x0000_00c2),
+    ("ESME_RMISSINGTLV", 0x0000_00c3),
+    ("ESME_RINVTLVVAL", 0x0000_00c4),
+];
+
 pub fn command_status(name: &str) -> Option<u32> {
-    STATUSES.iter().find(|(n, _)| *n == name).map(|(_, v)| *v)
+    STATUSES
+        .iter()
+        .chain(STATUS_ALIASES.iter())
+        .find(|(n, _)| *n == name)
+        .map(|(_, v)| *v)
 }
 
 pub struct InterfaceVersion;
@@ -234,21 +268,74 @@ pub enum TlvType {
     U32,
 }
 
+/// Every TLV SMPP 3.4 and 5.0 define, with the width the spec gives it. A tag
+/// outside this table is still carried byte-for-byte; it just reads as
+/// `unknown(0x…)` rather than by name.
 pub const KNOWN_TLVS: &[(u16, &str, TlvType)] = &[
+    (0x0005, "dest_addr_subunit", TlvType::U8),
+    (0x0006, "dest_network_type", TlvType::U8),
+    (0x0007, "dest_bearer_type", TlvType::U8),
+    (0x0008, "dest_telematics_id", TlvType::U16),
+    (0x000d, "source_addr_subunit", TlvType::U8),
+    (0x000e, "source_network_type", TlvType::U8),
+    (0x000f, "source_bearer_type", TlvType::U8),
+    (0x0010, "source_telematics_id", TlvType::U16),
+    (0x0017, "qos_time_to_live", TlvType::U32),
+    (0x0019, "payload_type", TlvType::U8),
+    (0x001d, "additional_status_info_text", TlvType::CString),
     (0x001e, "receipted_message_id", TlvType::CString),
+    (0x0030, "ms_msg_wait_facilities", TlvType::U8),
+    (0x0201, "privacy_indicator", TlvType::U8),
+    (0x0202, "source_subaddress", TlvType::Octets),
+    (0x0203, "dest_subaddress", TlvType::Octets),
     (0x0204, "user_message_reference", TlvType::U16),
+    (0x0205, "user_response_code", TlvType::U8),
     (0x020a, "source_port", TlvType::U16),
-    (0x020b, "destination_port", TlvType::U16),
+    (0x020b, "dest_port", TlvType::U16),
     (0x020c, "sar_msg_ref_num", TlvType::U16),
     (0x020d, "language_indicator", TlvType::U8),
     (0x020e, "sar_total_segments", TlvType::U8),
     (0x020f, "sar_segment_seqnum", TlvType::U8),
+    (0x0210, "sc_interface_version", TlvType::U8),
+    (0x0302, "callback_num_pres_ind", TlvType::U8),
+    (0x0303, "callback_num_atag", TlvType::Octets),
+    (0x0304, "number_of_messages", TlvType::U8),
+    (0x0381, "callback_num", TlvType::Octets),
+    (0x0420, "dpf_result", TlvType::U8),
+    (0x0421, "set_dpf", TlvType::U8),
+    (0x0422, "ms_availability_status", TlvType::U8),
     (0x0423, "network_error_code", TlvType::Octets),
     (0x0424, "message_payload", TlvType::Octets),
     (0x0425, "delivery_failure_reason", TlvType::U8),
     (0x0426, "more_messages_to_send", TlvType::U8),
     (0x0427, "message_state", TlvType::U8),
-    (0x0501, "its_reply_type", TlvType::U8),
+    (0x0428, "congestion_state", TlvType::U8),
+    (0x0501, "ussd_service_op", TlvType::U8),
+    (0x0600, "broadcast_channel_indicator", TlvType::U8),
+    (0x0601, "broadcast_content_type", TlvType::Octets),
+    (0x0602, "broadcast_content_type_info", TlvType::Octets),
+    (0x0603, "broadcast_message_class", TlvType::U8),
+    (0x0604, "broadcast_rep_num", TlvType::U8),
+    (0x0605, "broadcast_frequency_interval", TlvType::Octets),
+    (0x0606, "broadcast_area_identifier", TlvType::Octets),
+    (0x0607, "broadcast_error_status", TlvType::U32),
+    (0x0608, "broadcast_area_success", TlvType::U8),
+    (0x0609, "broadcast_end_time", TlvType::Octets),
+    (0x060a, "broadcast_service_group", TlvType::Octets),
+    (0x060b, "billing_identification", TlvType::Octets),
+    (0x060d, "source_network_id", TlvType::CString),
+    (0x060e, "dest_network_id", TlvType::CString),
+    (0x060f, "source_node_id", TlvType::Octets),
+    (0x0610, "dest_node_id", TlvType::Octets),
+    (0x0611, "dest_addr_np_resolution", TlvType::U8),
+    (0x0612, "dest_addr_np_information", TlvType::Octets),
+    (0x0613, "dest_addr_np_country", TlvType::Octets),
+    (0x1201, "display_time", TlvType::U8),
+    (0x1203, "sms_signal", TlvType::U16),
+    (0x1204, "ms_validity", TlvType::Octets),
+    (0x130c, "alert_on_message_delivery", TlvType::U8),
+    (0x1380, "its_reply_type", TlvType::U8),
+    (0x1383, "its_session_info", TlvType::Octets),
 ];
 
 pub const TLV_MESSAGE_PAYLOAD: u16 = 0x0424;
@@ -329,6 +416,87 @@ mod tests {
         assert!(is_response(0x8000_0004));
         assert!(!is_response(0x0000_0004));
         assert_eq!(response_id_for(0x0000_0004), 0x8000_0004);
+    }
+
+    #[test]
+    fn names_0x0501_as_ussd_service_op_not_its_reply_type() {
+        // 0x0501 is ussd_service_op; its_reply_type is 0x1380. Labelling a
+        // USSD TLV as an ITS one is a trace that lies about the wire.
+        assert_eq!(tlv_name(0x0501), "ussd_service_op");
+        assert_eq!(tlv_name(0x1380), "its_reply_type");
+    }
+
+    #[test]
+    fn uses_the_specs_name_for_the_destination_port_tlv() {
+        assert_eq!(tlv_name(0x020b), "dest_port");
+    }
+
+    #[test]
+    fn accepts_the_smpp_5_spelling_of_the_tlv_errors() {
+        // 3.4 calls them optional parameters, 5.0 calls them TLVs. The same
+        // five values have two names, and someone reading a 5.0 document must
+        // be able to type what they read.
+        assert_eq!(
+            command_status("ESME_RINVTLVSTREAM"),
+            command_status("ESME_RINVOPTPARSTREAM")
+        );
+        assert_eq!(command_status("ESME_RINVTLVLEN"), Some(0x0000_00c2));
+        assert_eq!(command_status("ESME_RMISSINGTLV"), Some(0x0000_00c3));
+        // The display name stays the 3.4 one, which is what aggregators quote.
+        assert_eq!(command_status_name(0x0000_00c2), "ESME_RINVPARLEN");
+    }
+
+    #[test]
+    fn names_the_statuses_smpp_5_added() {
+        assert_eq!(command_status_name(0x0000_0100), "ESME_RSERTYPUNAUTH");
+        assert_eq!(command_status_name(0x0000_0104), "ESME_RINVDCS");
+        assert_eq!(command_status_name(0x0000_0112), "ESME_RINVBCASTCHANIND");
+    }
+
+    #[test]
+    fn names_the_tlvs_an_aggregator_actually_sends() {
+        // Each of these used to read as unknown(0x....) in the trace.
+        assert_eq!(tlv_name(0x0017), "qos_time_to_live");
+        assert_eq!(tlv_name(0x001d), "additional_status_info_text");
+        assert_eq!(tlv_name(0x0381), "callback_num");
+        assert_eq!(tlv_name(0x0422), "ms_availability_status");
+        assert_eq!(tlv_name(0x0428), "congestion_state");
+        assert_eq!(tlv_name(0x060e), "dest_network_id");
+        assert_eq!(tlv_name(0x1203), "sms_signal");
+    }
+
+    #[test]
+    fn knows_every_tlv_the_spec_defines() {
+        assert_eq!(
+            KNOWN_TLVS.len(),
+            64,
+            "SMPP 3.4 and 5.0 define 64 TLVs between them"
+        );
+        let mut tags: Vec<u16> = KNOWN_TLVS.iter().map(|(t, _, _)| *t).collect();
+        tags.sort_unstable();
+        tags.dedup();
+        assert_eq!(tags.len(), KNOWN_TLVS.len(), "a tag is listed twice");
+    }
+
+    #[test]
+    fn reads_the_widths_the_spec_gives_the_new_tlvs() {
+        assert_eq!(
+            known_tlv(0x0017).unwrap().1,
+            TlvType::U32,
+            "qos_time_to_live is 4 octets"
+        );
+        assert_eq!(
+            known_tlv(0x0607).unwrap().1,
+            TlvType::U32,
+            "broadcast_error_status is a status"
+        );
+        assert_eq!(
+            known_tlv(0x1203).unwrap().1,
+            TlvType::U16,
+            "sms_signal is 2 octets"
+        );
+        assert_eq!(known_tlv(0x060d).unwrap().1, TlvType::CString);
+        assert_eq!(known_tlv(0x0381).unwrap().1, TlvType::Octets);
     }
 
     #[test]

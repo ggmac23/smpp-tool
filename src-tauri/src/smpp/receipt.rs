@@ -36,6 +36,7 @@ const ESM_INTERMEDIATE_NOTIFICATION: u32 = 0x20;
 
 fn message_state_name(value: u8) -> String {
     match value {
+        0 => "SCHEDULED".into(),
         1 => "ENROUTE".into(),
         2 => "DELIVERED".into(),
         3 => "EXPIRED".into(),
@@ -44,6 +45,7 @@ fn message_state_name(value: u8) -> String {
         6 => "ACCEPTED".into(),
         7 => "UNKNOWN".into(),
         8 => "REJECTED".into(),
+        9 => "SKIPPED".into(),
         other => format!("state({other})"),
     }
 }
@@ -150,6 +152,17 @@ pub fn parse_receipt(pdu: &Pdu) -> Option<Receipt> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_the_message_states_at_both_ends_of_the_table() {
+        // 0 and 9 are SMPP 5.0's; without them an SMSC's state reads as a
+        // bare number.
+        assert_eq!(message_state_name(0), "SCHEDULED");
+        assert_eq!(message_state_name(9), "SKIPPED");
+        assert_eq!(message_state_name(2), "DELIVERED");
+        assert_eq!(message_state_name(200), "state(200)");
+    }
+
     use crate::smpp::constants::command_id;
     use crate::smpp::decode::decode_pdu;
     use crate::smpp::encode::{encode_pdu, PduInput};
