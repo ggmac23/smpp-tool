@@ -186,7 +186,11 @@ fn sample() -> serde_json::Value {
 #[test]
 fn the_dump_the_renderer_checks_against_is_current() {
     let current = serde_json::to_string_pretty(&sample()).expect("serialise") + "\n";
-    let committed = std::fs::read_to_string(FIXTURE).unwrap_or_default();
+    // Compared without the carriage returns a Windows checkout may add: the
+    // test is about the shapes, and a newline is not one of them.
+    let committed = std::fs::read_to_string(FIXTURE)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
 
     if committed != current {
         std::fs::write(FIXTURE, &current).expect("write the fixture");

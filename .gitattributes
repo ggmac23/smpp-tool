@@ -1,0 +1,11 @@
+# Line endings are checked out as they are committed. The contract fixture is
+# compared byte for byte against freshly serialised JSON, and a Windows
+# checkout that turned its newlines into CRLF would fail that comparison for
+# a reason that has nothing to do with the shapes it describes.
+* text=auto eol=lf
+
+# Binaries are left alone.
+*.png binary
+*.jpg binary
+*.ico binary
+*.icns binary
