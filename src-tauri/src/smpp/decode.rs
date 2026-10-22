@@ -259,24 +259,24 @@ pub fn decode_pdu(buf: &[u8]) -> Result<Pdu, PduDecodeError> {
 
     for def in defs {
         let value = match def.ty {
-            FieldType::U8 => FieldValue::Num(r.u8(def.name).map_err(&fail)?),
-            FieldType::U16 => FieldValue::Num(r.u16(def.name).map_err(&fail)?),
-            FieldType::U32 => FieldValue::Num(r.u32(def.name).map_err(&fail)?),
-            FieldType::CString => FieldValue::Str(r.cstring(def.name).map_err(&fail)?),
+            FieldType::U8 => FieldValue::Num(r.u8(def.name).map_err(fail)?),
+            FieldType::U16 => FieldValue::Num(r.u16(def.name).map_err(fail)?),
+            FieldType::U32 => FieldValue::Num(r.u32(def.name).map_err(fail)?),
+            FieldType::CString => FieldValue::Str(r.cstring(def.name).map_err(fail)?),
             FieldType::Octets => {
                 let n = match def.len_from {
                     Some(_) => count_from(&fields, def),
                     None => r.remaining(),
                 };
-                FieldValue::Bytes(r.octets(def.name, n).map_err(&fail)?)
+                FieldValue::Bytes(r.octets(def.name, n).map_err(fail)?)
             }
             FieldType::DestList => {
                 let n = count_from(&fields, def);
-                FieldValue::DestList(read_dest_list(&mut r, n).map_err(&fail)?)
+                FieldValue::DestList(read_dest_list(&mut r, n).map_err(fail)?)
             }
             FieldType::UnsuccessList => {
                 let n = count_from(&fields, def);
-                FieldValue::UnsuccessList(read_unsuccess_list(&mut r, n).map_err(&fail)?)
+                FieldValue::UnsuccessList(read_unsuccess_list(&mut r, n).map_err(fail)?)
             }
         };
         fields.insert(def.name.to_string(), value);
