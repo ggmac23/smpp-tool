@@ -9,7 +9,7 @@
 use indexmap::IndexMap;
 
 use crate::smpp::constants::{command_name, PDU_HEADER_LENGTH};
-use crate::smpp::decode::{DestEntry, FieldValue};
+use crate::smpp::decode::{DestEntry, FieldValue, UnsuccessEntry};
 use crate::smpp::defs::{fields_for, FieldType};
 use crate::smpp::tlv::{encode_tlvs, Tlv};
 
@@ -52,6 +52,14 @@ impl PduInput {
     pub fn with_bytes(mut self, name: &str, value: Vec<u8>) -> Self {
         self.fields
             .insert(name.to_string(), FieldValue::Bytes(value));
+        self
+    }
+
+    /// The repeating list submit_multi_resp carries. Its count field is
+    /// derived at encode time, like every other.
+    pub fn with_unsuccess_list(mut self, name: &str, value: Vec<UnsuccessEntry>) -> Self {
+        self.fields
+            .insert(name.to_string(), FieldValue::UnsuccessList(value));
         self
     }
 
@@ -215,6 +223,305 @@ mod tests {
     use crate::smpp::constants::command_id;
     use crate::smpp::decode::{decode_pdu, DestEntry};
     use crate::smpp::tlv::Tlv;
+
+    /// The bytes a command family puts on the wire, written out by hand from
+    /// the SMPP specification.
+    ///
+    /// Every other encode test here round-trips through `decode_pdu`, and the
+    /// encoder and the decoder read the same table in `defs.rs` — so a wrong
+    /// field order, a swapped width or a misspelled name round-trips
+    /// perfectly and every one of those tests passes while every bind against
+    /// every real SMSC fails. These assertions are the only thing standing
+    /// between that mistake and the wire.
+    mod on_the_wire {
+        use super::*;
+
+        /// `command_length`, `command_id`, `command_status`, `sequence_number`.
+        fn header(id: u32, status: u32, sequence: u32, body_len: usize) -> Vec<u8> {
+            let mut out = Vec::new();
+            out.extend_from_slice(&((16 + body_len) as u32).to_be_bytes());
+            out.extend_from_slice(&id.to_be_bytes());
+            out.extend_from_slice(&status.to_be_bytes());
+            out.extend_from_slice(&sequence.to_be_bytes());
+            out
+        }
+
+        fn expect(input: &PduInput, body: &[u8]) {
+            let mut wanted = header(
+                input.command_id,
+                input.command_status,
+                input.sequence_number,
+                body.len(),
+            );
+            wanted.extend_from_slice(body);
+            let got = encode_pdu(input);
+            assert_eq!(
+                got,
+                wanted,
+                "\n   got {}\nwanted {}",
+                crate::smpp::summary::hex(&got),
+                crate::smpp::summary::hex(&wanted)
+            );
+        }
+
+        #[test]
+        fn bind_transceiver() {
+            // 4.1.5: system_id, password, system_type, interface_version,
+            // addr_ton, addr_npi, address_range.
+            let input = PduInput::new(id("bind_transceiver"), 1)
+                .with_str("system_id", "esme")
+                .with_str("password", "pw")
+                .with_str("system_type", "SMPP")
+                .with_num("interface_version", 0x34)
+                .with_num("addr_ton", 1)
+                .with_num("addr_npi", 1)
+                .with_str("address_range", "^44");
+
+            expect(
+                &input,
+                &[
+                    b'e', b's', b'm', b'e', 0x00, // system_id
+                    b'p', b'w', 0x00, // password
+                    b'S', b'M', b'P', b'P', 0x00, // system_type
+                    0x34, // interface_version
+                    0x01, // addr_ton
+                    0x01, // addr_npi
+                    b'^', b'4', b'4', 0x00, // address_range
+                ],
+            );
+        }
+
+        #[test]
+        fn bind_transceiver_resp() {
+            // 4.1.6: system_id only.
+            let input = PduInput::new(id("bind_transceiver_resp"), 1).with_str("system_id", "SMSC");
+            expect(&input, &[b'S', b'M', b'S', b'C', 0x00]);
+        }
+
+        #[test]
+        fn data_sm() {
+            // 4.2.2: the addressed head, then esm_class, registered_delivery,
+            // data_coding — and no sm_length or short_message at all.
+            let input = PduInput::new(id("data_sm"), 2)
+                .with_str("service_type", "CMT")
+                .with_num("source_addr_ton", 5)
+                .with_num("source_addr_npi", 0)
+                .with_str("source_addr", "INFO")
+                .with_num("dest_addr_ton", 1)
+                .with_num("dest_addr_npi", 1)
+                .with_str("destination_addr", "4477")
+                .with_num("esm_class", 0x40)
+                .with_num("registered_delivery", 1)
+                .with_num("data_coding", 8);
+
+            expect(
+                &input,
+                &[
+                    b'C', b'M', b'T', 0x00, // service_type
+                    0x05, 0x00, // source ton/npi
+                    b'I', b'N', b'F', b'O', 0x00, // source_addr
+                    0x01, 0x01, // dest ton/npi
+                    b'4', b'4', b'7', b'7', 0x00, // destination_addr
+                    0x40, // esm_class
+                    0x01, // registered_delivery
+                    0x08, // data_coding
+                ],
+            );
+        }
+
+        #[test]
+        fn replace_sm() {
+            // 4.10.1: message_id, the source address, the two times,
+            // registered_delivery, sm_default_msg_id, sm_length, body.
+            let input = PduInput::new(id("replace_sm"), 3)
+                .with_str("message_id", "AB12")
+                .with_num("source_addr_ton", 1)
+                .with_num("source_addr_npi", 1)
+                .with_str("source_addr", "4477")
+                .with_str("schedule_delivery_time", "")
+                .with_str("validity_period", "")
+                .with_num("registered_delivery", 1)
+                .with_num("sm_default_msg_id", 0)
+                .with_bytes("short_message", b"hi".to_vec());
+
+            expect(
+                &input,
+                &[
+                    b'A', b'B', b'1', b'2', 0x00, // message_id
+                    0x01, 0x01, // source ton/npi
+                    b'4', b'4', b'7', b'7', 0x00, // source_addr
+                    0x00, // schedule_delivery_time
+                    0x00, // validity_period
+                    0x01, // registered_delivery
+                    0x00, // sm_default_msg_id
+                    0x02, // sm_length, derived from the body
+                    b'h', b'i',
+                ],
+            );
+        }
+
+        #[test]
+        fn query_sm_resp() {
+            // 4.8.2: message_id, final_date, message_state, error_code.
+            let input = PduInput::new(id("query_sm_resp"), 4)
+                .with_str("message_id", "AB12")
+                .with_str("final_date", "261022120000000R")
+                .with_num("message_state", 2)
+                .with_num("error_code", 0);
+
+            let mut body = vec![b'A', b'B', b'1', b'2', 0x00];
+            body.extend_from_slice(b"261022120000000R");
+            body.push(0x00);
+            body.push(0x02);
+            body.push(0x00);
+            expect(&input, &body);
+        }
+
+        #[test]
+        fn submit_multi_resp_with_one_failure() {
+            // 4.5.2: message_id, no_unsuccess, then one entry per failure of
+            // ton, npi, address, and a four-octet error status.
+            let input = PduInput::new(id("submit_multi_resp"), 5)
+                .with_str("message_id", "AB12")
+                .with_unsuccess_list(
+                    "unsuccess_sme",
+                    vec![crate::smpp::decode::UnsuccessEntry {
+                        ton: 1,
+                        npi: 1,
+                        addr: "4477".into(),
+                        error_status: 0x0000_000b,
+                    }],
+                );
+
+            expect(
+                &input,
+                &[
+                    b'A', b'B', b'1', b'2', 0x00, // message_id
+                    0x01, // no_unsuccess, derived from the list
+                    0x01, 0x01, // ton/npi
+                    b'4', b'4', b'7', b'7', 0x00, // destination_addr
+                    0x00, 0x00, 0x00, 0x0b, // error_status
+                ],
+            );
+        }
+
+        #[test]
+        fn broadcast_sm() {
+            // 4.4.1: service_type, the source address, message_id,
+            // priority_flag, the two times, replace_if_present, data_coding,
+            // sm_default_msg_id. The body travels in a TLV, not here.
+            let input = PduInput::new(id("broadcast_sm"), 6)
+                .with_str("service_type", "")
+                .with_num("source_addr_ton", 1)
+                .with_num("source_addr_npi", 1)
+                .with_str("source_addr", "4477")
+                .with_str("message_id", "")
+                .with_num("priority_flag", 0)
+                .with_str("schedule_delivery_time", "")
+                .with_str("validity_period", "")
+                .with_num("replace_if_present_flag", 0)
+                .with_num("data_coding", 0)
+                .with_num("sm_default_msg_id", 0);
+
+            expect(
+                &input,
+                &[
+                    0x00, // service_type
+                    0x01, 0x01, // source ton/npi
+                    b'4', b'4', b'7', b'7', 0x00, // source_addr
+                    0x00, // message_id
+                    0x00, // priority_flag
+                    0x00, // schedule_delivery_time
+                    0x00, // validity_period
+                    0x00, // replace_if_present_flag
+                    0x00, // data_coding
+                    0x00, // sm_default_msg_id
+                ],
+            );
+        }
+
+        #[test]
+        fn alert_notification() {
+            // 4.11.1: the source address, then the ESME address. No status
+            // field of its own and no response.
+            let input = PduInput::new(id("alert_notification"), 7)
+                .with_num("source_addr_ton", 1)
+                .with_num("source_addr_npi", 1)
+                .with_str("source_addr", "4477")
+                .with_num("esme_addr_ton", 0)
+                .with_num("esme_addr_npi", 0)
+                .with_str("esme_addr", "ESME");
+
+            expect(
+                &input,
+                &[
+                    0x01, 0x01, // source ton/npi
+                    b'4', b'4', b'7', b'7', 0x00, // source_addr
+                    0x00, 0x00, // esme ton/npi
+                    b'E', b'S', b'M', b'E', 0x00, // esme_addr
+                ],
+            );
+        }
+
+        #[test]
+        fn submit_multi_puts_the_count_before_the_addresses() {
+            // 4.5.1: number_of_dests, then one entry each, before the tail
+            // submit_sm shares.
+            let input = PduInput::new(id("submit_multi"), 8)
+                .with_str("service_type", "")
+                .with_num("source_addr_ton", 1)
+                .with_num("source_addr_npi", 1)
+                .with_str("source_addr", "44")
+                .with_dest_list(
+                    "dest_address",
+                    vec![
+                        DestEntry {
+                            flag: 1,
+                            ton: Some(1),
+                            npi: Some(1),
+                            addr: Some("4477".into()),
+                            dl_name: None,
+                        },
+                        DestEntry {
+                            flag: 2,
+                            ton: None,
+                            npi: None,
+                            addr: None,
+                            dl_name: Some("list".into()),
+                        },
+                    ],
+                );
+
+            let got = encode_pdu(&input);
+            // Up to and including the two destination entries; the tail is
+            // zeros and is covered by the round-trip tests.
+            // service_type, ton/npi, source_addr, the count, then the two
+            // entries: 21 octets before the tail submit_sm shares.
+            let head = &got[16..16 + 21];
+            assert_eq!(
+                head,
+                &[
+                    0x00, // service_type
+                    0x01, 0x01, // source ton/npi
+                    b'4', b'4', 0x00, // source_addr
+                    0x02, // number_of_dests, derived from the list
+                    0x01, // dest_flag: an address
+                    0x01, 0x01, // ton/npi
+                    b'4', b'4', b'7', b'7', 0x00, // destination_addr
+                    0x02, // dest_flag: a distribution list
+                    b'l', b'i', b's', b't', 0x00,
+                ],
+                "\n   got {}",
+                crate::smpp::summary::hex(&got)
+            );
+        }
+
+        #[test]
+        fn enquire_link_is_a_header_and_nothing_else() {
+            let input = PduInput::new(id("enquire_link"), 9);
+            expect(&input, &[]);
+        }
+    }
 
     fn id(name: &str) -> u32 {
         command_id(name).unwrap()
