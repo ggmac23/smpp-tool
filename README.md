@@ -90,6 +90,8 @@ npm run tauri:dev       # or just run it
 
 ```bash
 npm test                        # the renderer: types and 206 tests
+
+npm run build:ui                # the backend suite checks the built frontend
 cd src-tauri && cargo test      # the backend: 405 tests
 ```
 

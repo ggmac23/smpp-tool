@@ -73,6 +73,11 @@ jobs:
 
       - run: npm ci
 
+      # The Rust suite asserts the packaged frontend is where the config
+      # says it is, so it has to exist before cargo test runs.
+      - name: Build the renderer
+        run: npm run build:ui
+
       # The suite runs on every platform, not only the one that is convenient:
       # a codec is the kind of thing that can be right on one and wrong on
       # another.

@@ -32,6 +32,11 @@ jobs:
 
       - run: npm ci
 
+      # The Rust suite asserts the packaged frontend is where the config
+      # says it is, so it has to exist before cargo test runs.
+      - name: Build the renderer
+        run: npm run build:ui
+
       # The renderer: types first, then the suite, then the bundle the
       # contract test reads.
       - run: npm test
