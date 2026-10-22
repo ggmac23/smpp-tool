@@ -137,13 +137,6 @@ sustained: 7000/sec
 That server returned no error at any rate, up to 16000/sec. The latency is
 what told the truth — which is why the ramp watches both.
 
-## The screenshots
-
-`tools/screenshots.sh` regenerates them: it serves the built interface, fills
-it with plausible traffic through the same stand-in-bridge seam the tests use,
-and captures each view with headless Chrome. Nothing in them is drawn by hand,
-and nothing touches a socket.
-
 ## Layout
 
 ```
