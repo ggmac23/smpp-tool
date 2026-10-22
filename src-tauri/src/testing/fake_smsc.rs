@@ -135,6 +135,10 @@ impl rustls::client::danger::ServerCertVerifier for AcceptAnyServer {
 #[derive(Default)]
 struct Shared {
     received: Vec<Pdu>,
+    /// Every byte that arrived, before framing. A PDU that declares a length
+    /// it will never reach never completes a frame, so a check that it
+    /// arrived byte for byte has to look here.
+    raw_in: Vec<u8>,
     handlers: HashMap<String, Handler>,
     next_message_id: u32,
     connections: Vec<mpsc::UnboundedSender<Vec<u8>>>,
@@ -179,6 +183,11 @@ impl FakeSmsc {
 
     pub fn received(&self) -> Vec<Pdu> {
         self.shared.lock().unwrap().received.clone()
+    }
+
+    /// Everything that arrived on the socket, framed or not.
+    pub fn received_raw(&self) -> Vec<u8> {
+        self.shared.lock().unwrap().raw_in.clone()
     }
 
     pub fn connection_count(&self) -> usize {
@@ -322,6 +331,8 @@ where
         if read == 0 {
             break;
         }
+
+        shared.lock().unwrap().raw_in.extend_from_slice(&buf[..read]);
 
         let raws = match framer.push(&buf[..read]) {
             Ok(raws) => raws,

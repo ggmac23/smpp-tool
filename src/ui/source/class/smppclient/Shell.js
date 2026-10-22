@@ -163,6 +163,11 @@ qx.Class.define("smppclient.Shell", {
     /** One line of feedback along the bottom. */
     showNotice(text) {
       this.__status.setValue(text === undefined || text === null ? "" : String(text));
+    },
+
+    /** The last notice, as shown. For the checks. */
+    getNoticeText() {
+      return this.__status.getValue();
     }
   }
 });

@@ -36,7 +36,17 @@ fn step(phase: usize, port: u16) -> String {
       }});
       if (!window.__p0) {{ window.__p0 = true; shell.getConnectionPanel().bind(); }}
       var label = shell.getConnectionPanel().getStateLabel();
-      if (label.indexOf("Bound") !== 0) {{ return {{ done: false, label: label }}; }}
+      if (label.indexOf("Bound") !== 0) {{
+        // If the trace is empty too, every subscription made at boot is
+        // dead, and the problem is not this panel.
+        return {{
+          done: false,
+          label: label,
+          notice: shell.getNoticeText(),
+          traceRows: app.getTracePanel().getRowCount(),
+          apiAvailable: smppclient.Api.getInstance().available()
+        }};
+      }}
       return {{ done: true, state: label, counters: shell.getConnectionPanel().getCountersText() }};
 "#
         ),
@@ -71,17 +81,19 @@ fn step(phase: usize, port: u16) -> String {
 "#
         .to_string(),
         3 => r#"
-      // A malformed PDU arrived between two good ones in the same write.
+      // A malformed PDU arrived after a good one in the same write. The good
+      // one must survive it, and the failure must be visible rather than
+      // silent.
       var trace = app.getTracePanel();
       var decodeError = null, enquires = 0;
       for (var i = 0; i < trace.getRowCount(); i++) {
         var s = trace.getRowSummary(i) || "";
-        if (s.indexOf("undecodable") >= 0 || s.indexOf("will not") >= 0) { decodeError = s; }
+        if (s.indexOf("decode error") >= 0) { decodeError = s; }
+        if (s.indexOf("enquire_link") >= 0) { enquires++; }
       }
-      for (var j = 0; j < trace.getRowCount(); j++) {
-        if ((trace.getRowSummary(j) || "").indexOf("enquire_link") >= 0) { enquires++; }
+      if (!decodeError || enquires < 2) {
+        return { done: false, decodeError: decodeError, enquires: enquires };
       }
-      if (!decodeError || enquires < 2) { return { done: false, decodeError: decodeError, enquires: enquires }; }
       return { done: true, decodeError: decodeError, enquires: enquires };
 "#
         .to_string(),
@@ -147,11 +159,16 @@ fn step(phase: usize, port: u16) -> String {
       o.phase = {phase};
       window.__TAURI__.core.invoke('probe_report', {{ text: JSON.stringify(o) }});
     }}
+    // The page may not have booted yet. Silence, not a verdict.
+    if (typeof qx === 'undefined' || !qx.core || !qx.core.Init) {{ return; }}
+    var app = qx.core.Init.getApplication();
+    if (!app || !app.getShell) {{ return; }}
+
     try {{
-      var app = qx.core.Init.getApplication();
       var shell = app.getShell();
-      var out = (function () {{ {body} }})();
-      if (out && out.done) {{ report(out); }}
+      // Always report: a phase that will not finish has to be able to say
+      // what it is looking at.
+      report((function () {{ {body} }})() || {{ done: false }});
     }} catch (e) {{
       report({{ done: true, thrown: String(e) }});
     }}
@@ -162,14 +179,19 @@ fn step(phase: usize, port: u16) -> String {
 
 /// Waits for the renderer to report the phase done, polling the script.
 fn run_phase(window: &WebviewWindow, rx: &Receiver<String>, phase: usize, port: u16) -> String {
-    for _ in 0..40 {
+    let mut last = String::from("nothing was reported at all");
+    for _ in 0..60 {
         let _ = window.eval(step(phase, port));
         if let Ok(text) = rx.recv_timeout(Duration::from_millis(500)) {
-            return text;
+            if text.contains("\"done\":true") {
+                return text;
+            }
+            last = text;
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    panic!("phase {phase} never completed");
+    println!("PHASE {phase}: NEVER FINISHED, last saw {last}");
+    std::process::exit(1);
 }
 
 fn main() {
@@ -251,6 +273,34 @@ fn main() {
                     }
 
                     let text = run_phase(&window, &rx, phase, port);
+
+                    if phase == 1 {
+                        let parts: Vec<_> = smsc
+                            .received()
+                            .into_iter()
+                            .filter(|p| p.command_id == command_id("submit_sm").unwrap())
+                            .collect();
+                        println!("SOCKET: submit_sm parts: {}", parts.len());
+                        let mut refs = Vec::new();
+                        for part in &parts {
+                            let body = part.bytes_field("short_message").unwrap_or_default();
+                            let len = part.u32_field("sm_length").unwrap_or(0);
+                            let esm = part.u32_field("esm_class").unwrap_or(0);
+                            // UDH: 05 00 03 <ref> <total> <seq>
+                            if body.len() >= 6 && body[0] == 0x05 && body[1] == 0x00 {
+                                refs.push((body[3], body[4], body[5]));
+                            }
+                            println!(
+                                "SOCKET:   sm_length {len}, esm_class 0x{esm:02x}, body {} bytes",
+                                body.len()
+                            );
+                            assert!(len < 255, "sm_length {len} does not fit one octet");
+                        }
+                        let shared = refs.iter().all(|r| r.0 == refs[0].0);
+                        println!(
+                            "SOCKET: concatenation refs {refs:?} shared: {shared}"
+                        );
+                    }
                     println!("PHASE {phase}: {text}");
                     results.push((phase, text));
 
@@ -261,9 +311,11 @@ fn main() {
 
                 // The last check belongs to the socket, not the screen.
                 let raw = smsc.received_raw();
-                let deadbeef = raw.iter().any(|bytes| {
-                    bytes.len() >= 16 && bytes[..4] == [0xde, 0xad, 0xbe, 0xef]
-                });
+                let wanted: [u8; 16] = [
+                    0xde, 0xad, 0xbe, 0xef, 0x00, 0x00, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x01,
+                ];
+                let deadbeef = raw.windows(16).any(|w| w == wanted);
                 println!("SOCKET: deadbeef arrived byte for byte: {deadbeef}");
                 println!("SOCKET: submits seen: {}", smsc.received().len());
                 println!("VERIFY: done");
@@ -271,7 +323,38 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![probe_report])
+        .invoke_handler(tauri::generate_handler![
+            probe_report,
+            smppclient::commands::connect,
+            smppclient::commands::disconnect,
+            smppclient::commands::bind,
+            smppclient::commands::unbind,
+            smppclient::commands::send_pdu,
+            smppclient::commands::send_raw,
+            smppclient::commands::compose_submit,
+            smppclient::commands::preview_pdu,
+            smppclient::commands::encode_body,
+            smppclient::commands::measure,
+            smppclient::commands::start_burst,
+            smppclient::commands::stop_burst,
+            smppclient::commands::burst_rows,
+            smppclient::commands::start_load_test,
+            smppclient::commands::stop_load_test,
+            smppclient::commands::load_report,
+            smppclient::commands::trace,
+            smppclient::commands::pdu_fields,
+            smppclient::commands::pdu_hex,
+            smppclient::commands::clear_trace,
+            smppclient::commands::set_trace_cap,
+            smppclient::commands::export_trace,
+            smppclient::commands::export_burst,
+            smppclient::commands::list_profiles,
+            smppclient::commands::save_profile,
+            smppclient::commands::remove_profile,
+            smppclient::commands::profile_secrets,
+            smppclient::commands::pick_file,
+            smppclient::commands::status
+        ])
         .run(tauri::generate_context!())
         .expect("the harness failed to start");
 }

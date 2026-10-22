@@ -14,7 +14,8 @@
         "width": 1440,
         "height": 960,
         "minWidth": 1024,
-        "minHeight": 640
+        "minHeight": 640,
+        "label": "main"
       }
     ],
     "security": {

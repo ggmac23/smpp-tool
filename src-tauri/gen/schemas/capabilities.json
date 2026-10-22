@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"What the renderer is allowed to ask the backend for: the core API, so it can listen for the trace, counter, burst and load-test events, and the file dialogs the exports and the CSV picker open. Nothing else — the SMPP work goes through this application's own commands, which carry their own judgement about what is safe.","local":true,"windows":["main"],"permissions":["core:default","dialog:default"]}}
