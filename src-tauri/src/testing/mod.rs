@@ -5,3 +5,5 @@
 #[cfg(test)]
 pub mod bytes;
 pub mod fake_smsc;
+#[cfg(test)]
+pub mod tmp;

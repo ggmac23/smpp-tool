@@ -538,7 +538,6 @@ mod tests {
             servername: Some("localhost".into()),
             client_cert: Some(test_client_cert()),
             client_key: Some(test_client_key()),
-            ..Default::default()
         };
         let (transport, events) = Transport::connect(opts(port, tls)).await.unwrap();
         let seen = watch(events);

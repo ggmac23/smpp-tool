@@ -94,7 +94,7 @@ mod tests {
     fn decodes_an_unknown_tag_without_losing_its_bytes() {
         let tlv = Tlv::new(0x9999, vec![0xde, 0xad, 0xbe, 0xef]);
         assert_eq!(
-            decode_tlvs(&encode_tlvs(&[tlv.clone()])).unwrap(),
+            decode_tlvs(&encode_tlvs(std::slice::from_ref(&tlv))).unwrap(),
             vec![tlv]
         );
     }

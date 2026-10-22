@@ -867,7 +867,7 @@ mod tests {
         let seen = n.clone();
         smsc.on("submit_sm", move |p| {
             let i = seen.fetch_add(1, Ordering::SeqCst) + 1;
-            let status = if i % 2 == 0 {
+            let status = if i.is_multiple_of(2) {
                 command_status("ESME_RTHROTTLED").unwrap()
             } else {
                 0

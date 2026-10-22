@@ -5,6 +5,7 @@ pub mod burst;
 pub mod dlr;
 pub mod export;
 pub mod loadtest;
+pub mod profiles;
 pub mod recipients;
 pub mod session;
 pub mod trace;
