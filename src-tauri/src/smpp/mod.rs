@@ -7,5 +7,7 @@
 pub mod constants;
 pub mod decode;
 pub mod defs;
+pub mod encode;
 pub mod frame;
+pub mod text;
 pub mod tlv;
