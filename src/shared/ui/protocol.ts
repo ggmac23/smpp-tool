@@ -245,6 +245,42 @@ export interface Profile {
   correlation: CorrelationConfig;
 }
 
+/** What `status` reports. The renderer reads these names exactly. */
+export interface StatusReport {
+  state: BindState;
+  mode: BindMode | null;
+  connected: boolean;
+  dropped: number;
+  pendingBuffered: number;
+  pendingDeclared: number | null;
+  inflight: number;
+}
+
+/** What an export returns: an object, so `result.path` means something. */
+export interface WrittenFile {
+  path: string;
+}
+
+export interface SendOutcome {
+  sequenceNumber: number;
+  commandStatus: number;
+}
+
+export interface ProfileSecrets {
+  password: string | null;
+  keyPassphrase: string | null;
+}
+
+export interface EncodedBody {
+  hex: string;
+  unmappable: string[];
+}
+
+export interface Counter {
+  sent: number;
+  received: number;
+}
+
 export interface Measurement {
   chars: number;
   bits: number;

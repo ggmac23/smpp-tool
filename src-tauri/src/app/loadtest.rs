@@ -615,8 +615,10 @@ impl LoadRunner {
             let measured = measure_step(&before, &after, rate, started.elapsed());
             before = after;
 
+            let short = fell_short(&measured);
             let breached = measured.error_share > abandon_on.error_share
-                || measured.latency_p95 > abandon_on.latency_p95_ms;
+                || measured.latency_p95 > abandon_on.latency_p95_ms
+                || short;
 
             let reason = if !breached {
                 None
@@ -626,10 +628,16 @@ impl LoadRunner {
                     measured.error_share * 100.0,
                     abandon_on.error_share * 100.0
                 ))
-            } else {
+            } else if measured.latency_p95 > abandon_on.latency_p95_ms {
                 Some(format!(
                     "p95 latency reached {}ms, above the {}ms allowed",
                     measured.latency_p95, abandon_on.latency_p95_ms
+                ))
+            } else {
+                Some(format!(
+                    "asked for {}/sec and only {:.1}/sec went out, so the SMSC is not \
+                     taking more however few errors it returns",
+                    measured.requested_rate, measured.achieved_rate
                 ))
             };
 
@@ -824,6 +832,20 @@ fn measure_step(before: &Totals, after: &Totals, rate: u32, elapsed: Duration) -
     }
 }
 
+/// How far short of its requested rate a step may fall and still count as
+/// having held it. A tenth covers the jitter of a tick-based pacer; beyond
+/// that the SMSC is simply not taking the traffic, however few errors it
+/// returns.
+const SHORTFALL_TOLERANCE: f64 = 0.9;
+
+/// Whether a step fell short of the rate it asked for. A step with no errors
+/// and good latency that still cannot be fed at the requested rate has not
+/// sustained it — the queue is absorbing the difference, and climbing further
+/// would only measure the queue.
+fn fell_short(step: &RampStep) -> bool {
+    step.requested_rate > 0 && step.achieved_rate < step.requested_rate as f64 * SHORTFALL_TOLERANCE
+}
+
 /// Totals reduced to what the sustained-rate verdict needs.
 fn totals_for_sustained(connections: &[Connection]) -> (usize, usize) {
     let totals = tally_totals(connections);
@@ -975,6 +997,42 @@ mod tests {
             totals.per_connection.push(latencies);
         }
         totals
+    }
+
+    #[test]
+    fn a_step_that_could_not_keep_up_did_not_sustain_its_rate() {
+        // Found against a real SMSC: the ramp asked for 20/sec, achieved
+        // 13.3/sec, saw no errors and no latency breach, and reported a
+        // sustained rate of 20. A fake SMSC answers instantly, so achieved
+        // always equals requested and this could never show up there.
+        let before = totals_with(vec![vec![150; 10]]);
+        let mut after = before.clone();
+        after.per_connection[0].extend(std::iter::repeat_n(150u64, 13));
+        after.submitted += 13;
+        after.accepted += 13;
+
+        let step = measure_step(&before, &after, 20, Duration::from_secs(1));
+        assert!(
+            (step.achieved_rate - 13.0).abs() < 0.5,
+            "achieved {}",
+            step.achieved_rate
+        );
+        assert!(
+            fell_short(&step),
+            "13 of 20 is a shortfall this check should not tolerate"
+        );
+    }
+
+    #[test]
+    fn a_step_that_kept_up_is_not_called_short() {
+        let before = totals_with(vec![vec![10; 10]]);
+        let mut after = before.clone();
+        after.per_connection[0].extend(std::iter::repeat_n(10u64, 20));
+        after.submitted += 20;
+        after.accepted += 20;
+
+        let step = measure_step(&before, &after, 20, Duration::from_secs(1));
+        assert!(!fell_short(&step), "20 of 20 is not a shortfall");
     }
 
     #[test]

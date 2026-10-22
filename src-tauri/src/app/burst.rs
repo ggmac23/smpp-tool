@@ -58,10 +58,11 @@ pub struct BurstRow {
     pub submit_latency_ms: Option<u64>,
     pub dlr_state: Option<String>,
     pub dlr_latency_ms: Option<u64>,
-    /// When the first part went out. The runner's own bookkeeping, visible
-    /// inside the crate only so other modules can build a row in a test.
+    /// When the first part went out. The runner's own bookkeeping; public so
+    /// a test elsewhere can build a row, and skipped by serde so it never
+    /// crosses to the renderer.
     #[serde(skip)]
-    pub(crate) sent_at: Option<Instant>,
+    pub sent_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]

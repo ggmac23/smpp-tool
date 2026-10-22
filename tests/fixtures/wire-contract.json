@@ -1,0 +1,201 @@
+{
+  "BurstDone": {
+    "reason": "complete",
+    "stats": {
+      "accepted": 0,
+      "achievedRatePerSec": 0.0,
+      "dlrReceived": 0,
+      "dlrUnmatched": 0,
+      "errorsByStatus": {},
+      "latencyP50": 0,
+      "latencyP95": 0,
+      "latencyP99": 0,
+      "messages": 0,
+      "pdus": 0,
+      "submitted": 0
+    },
+    "warnings": [
+      "a warning"
+    ]
+  },
+  "BurstRow": {
+    "body": "hello",
+    "commandStatus": 0,
+    "dlrLatencyMs": 220,
+    "dlrState": "DELIVRD",
+    "id": "r0",
+    "messageId": "AB12",
+    "pdus": 1,
+    "recipient": "393331234567",
+    "statusName": "ESME_ROK",
+    "submitLatencyMs": 14
+  },
+  "BurstStats": {
+    "accepted": 16,
+    "achievedRatePerSec": 44.4,
+    "dlrReceived": 16,
+    "dlrUnmatched": 0,
+    "errorsByStatus": {
+      "ESME_RTHROTTLED": 4
+    },
+    "latencyP50": 1,
+    "latencyP95": 2,
+    "latencyP99": 4,
+    "messages": 20,
+    "pdus": 20,
+    "submitted": 20
+  },
+  "ConnectionStats": {
+    "accepted": 10,
+    "bindError": null,
+    "bound": true,
+    "errorsByStatus": {},
+    "index": 0,
+    "latencyP50": 1,
+    "latencyP95": 2,
+    "latencyP99": 3,
+    "lost": false,
+    "submitted": 10
+  },
+  "Counter": {
+    "received": 1,
+    "sent": 1
+  },
+  "DescribedField": {
+    "name": "command_length",
+    "value": "33"
+  },
+  "EncodedBody": {
+    "hex": "6869",
+    "unmappable": []
+  },
+  "LoadProgress": {
+    "achievedRatePerSec": 0.0,
+    "currentRatePerSec": 60,
+    "errors": 1,
+    "submitted": 10,
+    "total": 20
+  },
+  "LoadReport": {
+    "accepted": 30,
+    "achievedRatePerSec": 45.6,
+    "connections": 2,
+    "durationMs": 1010,
+    "ended": "breached",
+    "errorsByStatus": {
+      "ESME_RTHROTTLED": 16
+    },
+    "latencyP50": 1,
+    "latencyP95": 2,
+    "latencyP99": 3,
+    "messages": 46,
+    "pdus": 46,
+    "perConnection": [
+      {
+        "accepted": 10,
+        "bindError": null,
+        "bound": true,
+        "errorsByStatus": {},
+        "index": 0,
+        "latencyP50": 1,
+        "latencyP95": 2,
+        "latencyP99": 3,
+        "lost": false,
+        "submitted": 10
+      }
+    ],
+    "requestedRatePerSec": 240,
+    "steps": [
+      {
+        "accepted": 30,
+        "achievedRate": 45.6,
+        "breached": true,
+        "errorShare": 0.35,
+        "latencyP95": 1,
+        "reason": "error share above the limit",
+        "requestedRate": 60,
+        "submitted": 46
+      }
+    ],
+    "submitted": 46,
+    "sustainedRatePerSec": 0
+  },
+  "Measurement": {
+    "bits": 35,
+    "bytes": 5,
+    "chars": 5,
+    "parts": 1,
+    "unmappable": []
+  },
+  "Profile": {
+    "bind": {
+      "addrNpi": 0,
+      "addrTon": 0,
+      "addressRange": "^44",
+      "interfaceVersion": 52,
+      "mode": "transceiver",
+      "systemId": "esme",
+      "systemType": "SMPP"
+    },
+    "correlation": {
+      "normaliseRadix": true,
+      "parseText": true,
+      "preferTlv": true,
+      "stripLeadingZeros": true
+    },
+    "host": "smsc.example.com",
+    "id": "p1",
+    "name": "Staging",
+    "port": 2775,
+    "tls": {
+      "caPath": "/etc/ssl/ca.pem",
+      "clientCertPath": "/etc/ssl/client.crt",
+      "clientKeyPath": "/etc/ssl/client.key",
+      "enabled": true,
+      "rejectUnauthorized": true,
+      "servername": "smsc.example.com"
+    }
+  },
+  "ProfileSecrets": {
+    "keyPassphrase": null,
+    "password": null
+  },
+  "RampStep": {
+    "accepted": 30,
+    "achievedRate": 45.6,
+    "breached": true,
+    "errorShare": 0.35,
+    "latencyP95": 1,
+    "reason": "error share above the limit",
+    "requestedRate": 60,
+    "submitted": 46
+  },
+  "SendOutcome": {
+    "commandStatus": 0,
+    "sequenceNumber": 2
+  },
+  "StatusReport": {
+    "connected": true,
+    "dropped": 0,
+    "inflight": 3,
+    "mode": "transceiver",
+    "pendingBuffered": 20,
+    "pendingDeclared": 64,
+    "state": "bound"
+  },
+  "WirePdu": {
+    "at": 1700000000000,
+    "commandName": "submit_sm",
+    "commandStatus": 0,
+    "decodeError": null,
+    "direction": "out",
+    "hex": "00000021",
+    "seq": 1,
+    "sequenceNumber": 2,
+    "statusName": "ESME_ROK",
+    "summary": "submit_sm -> 4477"
+  },
+  "WrittenFile": {
+    "path": "/tmp/trace.csv"
+  }
+}
