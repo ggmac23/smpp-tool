@@ -9,6 +9,7 @@
 //! The renderer never builds or parses a PDU. It sends intents through the
 //! Tauri commands and receives events; bytes cross as lowercase hex strings.
 
+pub mod app;
 pub mod smpp;
 pub mod testing;
 

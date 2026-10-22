@@ -9,6 +9,8 @@ pub mod decode;
 pub mod defs;
 pub mod encode;
 pub mod frame;
+pub mod receipt;
 pub mod segment;
+pub mod summary;
 pub mod text;
 pub mod tlv;
