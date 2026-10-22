@@ -95,6 +95,11 @@ pub struct ProfileSecrets {
 struct Live {
     session: Option<Arc<Session>>,
     burst: Option<Arc<BurstRunner>>,
+    /// Whether `burst` is mid-run. A second start while one is going would
+    /// leave the first unreachable: `stop_burst` only reaches the newest.
+    bursting: bool,
+    /// Whether a load test is mid-run, for the same reason.
+    load_running: bool,
     load: Option<Arc<LoadRunner>>,
     last_load_report: Option<LoadReport>,
     correlation: CorrelationConfig,
@@ -159,9 +164,12 @@ impl Controller {
     }
 
     pub fn disconnect(&self) {
+        // The runner is kept, not cleared: its rows are the result of the run
+        // and exporting them after tidying up the connection is the normal
+        // thing to do. Clearing it here also meant `stop()` was never called,
+        // because the clone was taken after the clear.
         let (session, burst) = {
             let mut live = self.live.lock().unwrap();
-            live.burst = None;
             (live.session.take(), live.burst.clone())
         };
         if let Some(burst) = burst {
@@ -262,14 +270,21 @@ impl Controller {
 
     pub async fn start_burst(&self, req: StartBurstRequest) -> Result<BurstDone, String> {
         let session = self.session()?;
-        let correlation = self.live.lock().unwrap().correlation;
+        let correlation = {
+            let mut live = self.live.lock().unwrap();
+            if live.bursting {
+                return Err("a burst is already running; stop it first".into());
+            }
+            live.bursting = true;
+            live.correlation
+        };
 
         let (tx, rx) = mpsc::unbounded_channel();
         let runner = Arc::new(BurstRunner::new(session, correlation).with_events(tx));
         self.live.lock().unwrap().burst = Some(runner.clone());
         self.pump_burst(rx);
 
-        runner
+        let done = runner
             .start(BurstConfig {
                 recipients: req.recipients,
                 rate_per_sec: req.rate_per_sec,
@@ -282,7 +297,10 @@ impl Controller {
                 backoff_on_throttle: req.backoff_on_throttle,
                 await_dlr: Duration::from_millis(req.await_dlr_ms),
             })
-            .await
+            .await;
+
+        self.live.lock().unwrap().bursting = false;
+        done
     }
 
     pub fn stop_burst(&self) {
@@ -312,6 +330,14 @@ impl Controller {
     /// from the session the user is inspecting, and mixing them would make
     /// the trace useless at the rates it runs.
     pub async fn start_load_test(&self, req: StartLoadRequest) -> Result<LoadReport, String> {
+        {
+            let mut live = self.live.lock().unwrap();
+            if live.load_running {
+                return Err("a load test is already running; stop it first".into());
+            }
+            live.load_running = true;
+        }
+
         let (tx, rx) = mpsc::unbounded_channel();
         let runner = Arc::new(LoadRunner::new().with_events(tx));
         self.live.lock().unwrap().load = Some(runner.clone());
@@ -346,9 +372,12 @@ impl Controller {
                 placement: req.placement,
                 packing: req.packing,
             })
-            .await?;
+            .await;
 
-        self.live.lock().unwrap().last_load_report = Some(report.clone());
+        let mut live = self.live.lock().unwrap();
+        live.load_running = false;
+        let report = report?;
+        live.last_load_report = Some(report.clone());
         Ok(report)
     }
 
@@ -1102,6 +1131,58 @@ mod tests {
             backoff_on_throttle: false,
             await_dlr_ms: 0,
         }
+    }
+
+    #[tokio::test]
+    async fn disconnecting_stops_a_running_burst_and_keeps_its_rows() {
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let dir = TempDir::new("ctl-disc-burst");
+        let (_rec, ctl) = controller(&dir);
+
+        ctl.connect(connect_request(port)).await.unwrap();
+        ctl.bind(bind_request()).await.unwrap();
+        ctl.start_burst(burst_request(3, 200)).await.unwrap();
+        assert_eq!(ctl.burst_rows(0, 10).len(), 3);
+
+        ctl.disconnect();
+
+        // The rows are the result of the run. Tidying up the connection is
+        // not a reason to throw away what the run found, and exporting them
+        // afterwards is the normal thing to do.
+        assert_eq!(ctl.burst_rows(0, 10).len(), 3, "the results were discarded");
+        let path = dir.join("after-disconnect.csv");
+        let written = ctl.export_burst(path.to_str().unwrap()).unwrap();
+        let body = std::fs::read_to_string(&written.path).unwrap();
+        assert!(
+            body.contains("393331234567"),
+            "the export lost the rows: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn refuses_a_second_burst_while_one_is_running() {
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let dir = TempDir::new("ctl-twobursts");
+        let (_rec, ctl) = controller(&dir);
+
+        ctl.connect(connect_request(port)).await.unwrap();
+        ctl.bind(bind_request()).await.unwrap();
+
+        let ctl = Arc::new(ctl);
+        let second = ctl.clone();
+        let racing = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            second.start_burst(burst_request(5, 10)).await
+        });
+
+        ctl.start_burst(burst_request(60, 20)).await.unwrap();
+        let err = racing.await.unwrap().unwrap_err();
+        assert!(
+            err.contains("already running"),
+            "a second burst must be refused, not left unreachable: {err}"
+        );
     }
 
     #[tokio::test]

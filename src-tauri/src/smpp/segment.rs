@@ -170,13 +170,27 @@ pub fn segment(opts: &SegmentOptions) -> Vec<Segment> {
 
     let total = chunks.len() as u8;
 
+    // Both concatenation schemes carry the total and the sequence in a single
+    // octet, so past 255 parts they wrap: 327 segments go out claiming to be
+    // "part 45 of 71", which no handset can reassemble. The PDUs still go —
+    // refusing is not this tool's job — but every part says what happened.
+    let over_limit = if chunks.len() > 255 {
+        vec![format!(
+            "{} parts is past the 255 a concatenated message can number, so the \
+             total and sequence wrap and the message cannot be reassembled",
+            chunks.len()
+        )]
+    } else {
+        Vec::new()
+    };
+
     if opts.mode == SegmentationMode::Sar {
         let reference = opts.ref_num.unwrap_or_else(|| random_ref(0xfffe));
         return chunks
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                build(
+                let mut seg = build(
                     c,
                     None,
                     vec![
@@ -185,7 +199,9 @@ pub fn segment(opts: &SegmentOptions) -> Vec<Segment> {
                         Tlv::new(TLV_SAR_SEGMENT_SEQNUM, vec![(i + 1) as u8]),
                     ],
                     false,
-                )
+                );
+                seg.unmappable.extend(over_limit.iter().cloned());
+                seg
             })
             .collect();
     }
@@ -195,12 +211,14 @@ pub fn segment(opts: &SegmentOptions) -> Vec<Segment> {
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            build(
+            let mut seg = build(
                 c,
                 Some(&concat_udh(reference, total, (i + 1) as u8)),
                 Vec::new(),
                 true,
-            )
+            );
+            seg.unmappable.extend(over_limit.iter().cloned());
+            seg
         })
         .collect()
 }
@@ -338,6 +356,26 @@ mod tests {
         o.data_coding = DataCoding::JIS;
         o.mode = SegmentationMode::Udh;
         assert_eq!(segment(&o).len(), 1);
+    }
+
+    #[test]
+    fn says_so_when_a_message_needs_more_parts_than_concatenation_can_number() {
+        // The UDH carries the total and the sequence in one octet each, so
+        // past 255 parts both wrap. 327 segments claiming to be "part 45 of
+        // 71" cannot be reassembled by any handset, and nothing used to say
+        // a word.
+        let text: String = "a".repeat(50_000);
+        let mut o = opts(&text);
+        o.mode = SegmentationMode::Udh;
+        let segments = segment(&o);
+
+        assert!(segments.len() > 255);
+        assert!(
+            segments
+                .iter()
+                .any(|s| s.unmappable.iter().any(|w| w.contains("255"))),
+            "the part count ran past what the UDH can number and nothing said so"
+        );
     }
 
     #[test]

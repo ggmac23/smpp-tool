@@ -288,9 +288,20 @@ impl LoadRunner {
             LoadMode::Fixed { rate_per_sec } => rate_per_sec,
             LoadMode::Ramp { max_rate, .. } => max_rate,
         };
-        if requested > ceiling {
+        // A ramp that starts above the ceiling runs its first step there
+        // before the maximum ever stops it, so the highest rate it would
+        // actually ask for is what gets checked.
+        let highest = match cfg.mode {
+            LoadMode::Fixed { rate_per_sec } => rate_per_sec,
+            LoadMode::Ramp {
+                start_rate,
+                max_rate,
+                ..
+            } => start_rate.max(max_rate),
+        };
+        if highest > ceiling {
             return Err(format!(
-                "{requested}/sec is above the {ceiling}/sec these {} connection(s) can carry",
+                "{highest}/sec is above the {ceiling}/sec these {} connection(s) can carry",
                 cfg.connections
             ));
         }
@@ -323,6 +334,7 @@ impl LoadRunner {
                 0,
                 LoadEndReason::NoConnections,
                 started,
+                0,
             ));
         }
 
@@ -343,8 +355,13 @@ impl LoadRunner {
             LoadMode::Ramp { .. } => self.run_ramp(&cfg, &connections, &live).await,
         };
 
-        let sustained = sustained_rate(&steps, requested, &cfg.mode);
-        let mut report = self.finish(
+        let sustained = sustained_rate(
+            &steps,
+            &totals_for_sustained(&connections),
+            requested,
+            &cfg.mode,
+        );
+        let report = self.finish(
             &cfg,
             requested,
             &connections,
@@ -352,8 +369,8 @@ impl LoadRunner {
             sustained,
             ended,
             started,
+            sent,
         );
-        report.messages = sent;
         Ok(report)
     }
 
@@ -658,6 +675,7 @@ impl LoadRunner {
         sustained: u32,
         ended: LoadEndReason,
         started: Instant,
+        messages: usize,
     ) -> LoadReport {
         let elapsed = started.elapsed();
         let totals = tally_totals(connections);
@@ -696,7 +714,7 @@ impl LoadRunner {
                 0.0
             },
             sustained_rate_per_sec: sustained,
-            messages: 0,
+            messages,
             pdus: totals.submitted,
             submitted: totals.submitted,
             accepted: totals.accepted,
@@ -806,11 +824,36 @@ fn measure_step(before: &Totals, after: &Totals, rate: u32, elapsed: Duration) -
     }
 }
 
+/// Totals reduced to what the sustained-rate verdict needs.
+fn totals_for_sustained(connections: &[Connection]) -> (usize, usize) {
+    let totals = tally_totals(connections);
+    (totals.submitted, totals.accepted)
+}
+
 /// The highest rate the SMSC carried without breaching a limit. A ramp that
-/// breaks on its first step sustained nothing.
-fn sustained_rate(steps: &[RampStep], requested: u32, mode: &LoadMode) -> u32 {
+/// breaks on its first step sustained nothing, and a fixed run that was
+/// refused throughout did not sustain the rate it asked for — saying it did
+/// would be the report asserting the opposite of what happened.
+fn sustained_rate(
+    steps: &[RampStep],
+    (submitted, accepted): &(usize, usize),
+    requested: u32,
+    mode: &LoadMode,
+) -> u32 {
     match mode {
-        LoadMode::Fixed { rate_per_sec } => *rate_per_sec,
+        LoadMode::Fixed { rate_per_sec } => {
+            if *submitted == 0 {
+                return 0;
+            }
+            let accepted_share = *accepted as f64 / *submitted as f64;
+            // The same bar a ramp uses by default: more than a couple of
+            // percent refused is not a rate that was carried.
+            if accepted_share >= 0.98 {
+                *rate_per_sec
+            } else {
+                (*rate_per_sec as f64 * accepted_share).floor() as u32
+            }
+        }
         LoadMode::Ramp { .. } => steps
             .iter()
             .filter(|s| !s.breached)
@@ -1000,6 +1043,79 @@ mod tests {
         assert!(
             report.submitted < 4000,
             "it should have stopped early, not spent the whole budget on dead sockets"
+        );
+    }
+
+    #[test]
+    fn checks_the_ramp_ceiling_against_where_it_starts_as_well_as_where_it_ends() {
+        // A ramp that starts above the ceiling runs its first step there
+        // before the maximum ever stops it, which is the one thing the
+        // refusal claims cannot happen.
+        let runner = LoadRunner::new();
+        let mut cfg = config(1, 1, 10, fixed(10));
+        cfg.mode = LoadMode::Ramp {
+            start_rate: MAX_RATE * 10,
+            step: 50,
+            step_duration: Duration::from_millis(100),
+            max_rate: 100,
+            abandon_on: AbandonOn {
+                error_share: 0.02,
+                latency_p95_ms: 2000,
+            },
+        };
+        let err = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(runner.start(cfg))
+            .unwrap_err();
+        assert!(err.contains("above"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_fixed_run_does_not_claim_to_have_sustained_a_rate_it_never_held() {
+        // Every submit comes back throttled. Reporting the requested rate as
+        // sustained would be the report asserting the opposite of what
+        // happened.
+        let smsc = FakeSmsc::new();
+        smsc.on("submit_sm", move |p| {
+            Some(vec![PduInput::new(
+                command_id("submit_sm_resp").unwrap(),
+                p.sequence_number,
+            )
+            .with_status(command_status("ESME_RTHROTTLED").unwrap())])
+        });
+        let port = smsc.listen().await;
+
+        let report = LoadRunner::new()
+            .start(config(port, 1, 20, fixed(200)))
+            .await
+            .unwrap();
+        assert_eq!(report.accepted, 0);
+        assert_eq!(
+            report.sustained_rate_per_sec, 0,
+            "nothing was carried, so nothing was sustained"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_done_event_carries_the_same_message_count_as_the_report() {
+        let smsc = FakeSmsc::new();
+        let port = smsc.listen().await;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let runner = LoadRunner::new().with_events(tx);
+
+        let report = runner.start(config(port, 1, 10, fixed(200))).await.unwrap();
+        assert_eq!(report.messages, 10);
+
+        let mut done = None;
+        while let Ok(event) = rx.try_recv() {
+            if let LoadEvent::Done(r) = event {
+                done = Some(r);
+            }
+        }
+        let done = done.expect("a done event");
+        assert_eq!(
+            done.messages, report.messages,
+            "the event is what the UI draws; it cannot disagree with the report"
         );
     }
 

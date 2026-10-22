@@ -272,12 +272,15 @@ pub fn to_wire_burst_row(row: &BurstRow) -> WireBurstRow {
 /// first: `0` is itself a hex digit, and filtering before stripping would
 /// shift every byte by half.
 pub fn clean_hex(s: &str) -> String {
-    let t = s.trim();
-    let body = t
-        .strip_prefix("0x")
-        .or_else(|| t.strip_prefix("0X"))
-        .unwrap_or(t);
-    body.chars().filter(|c| c.is_ascii_hexdigit()).collect()
+    // Every `0x`, not just the first: a value pasted out of a C array or a
+    // header file prefixes each byte, and stripping only the leading one
+    // leaves the other zeros behind as nibbles that shift everything after
+    // them — six intended bytes became eight different ones.
+    let without_prefixes = s.replace("0x", " ").replace("0X", " ");
+    without_prefixes
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect()
 }
 
 /// Hex to bytes, dropping a trailing half-byte rather than inventing a zero
@@ -448,6 +451,21 @@ mod tests {
         }];
         let input = to_pdu_input(&req);
         assert_eq!(input.tlvs[0].value, vec![0xde, 0xad, 0xbe, 0xef]);
+    }
+
+    #[test]
+    fn reads_hex_that_prefixes_every_byte() {
+        // Pasting a UDH or a TLV value out of a C array or a header file is
+        // an ordinary thing to do. Stripping only the first `0x` left the
+        // later zeros behind as real nibbles, so six intended bytes became
+        // eight different ones.
+        assert_eq!(
+            hex_to_bytes("0x05 0x00 0x03 0x01 0x02 0x01"),
+            vec![0x05, 0x00, 0x03, 0x01, 0x02, 0x01]
+        );
+        assert_eq!(hex_to_bytes("0X0A,0XFF"), vec![0x0a, 0xff]);
+        // And a leading 0 that is not a prefix is still a nibble.
+        assert_eq!(hex_to_bytes("00ff10"), vec![0x00, 0xff, 0x10]);
     }
 
     #[test]

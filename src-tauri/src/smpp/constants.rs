@@ -291,7 +291,7 @@ pub const KNOWN_TLVS: &[(u16, &str, TlvType)] = &[
     (0x0204, "user_message_reference", TlvType::U16),
     (0x0205, "user_response_code", TlvType::U8),
     (0x020a, "source_port", TlvType::U16),
-    (0x020b, "dest_port", TlvType::U16),
+    (0x020b, "destination_port", TlvType::U16),
     (0x020c, "sar_msg_ref_num", TlvType::U16),
     (0x020d, "language_indicator", TlvType::U8),
     (0x020e, "sar_total_segments", TlvType::U8),
@@ -427,8 +427,12 @@ mod tests {
     }
 
     #[test]
-    fn uses_the_specs_name_for_the_destination_port_tlv() {
-        assert_eq!(tlv_name(0x020b), "dest_port");
+    fn uses_the_3_4_name_for_the_destination_port_tlv() {
+        // SMPP 3.4 section 5.3.2.21 calls it destination_port; 5.0 renamed it
+        // dest_port. The display name follows 3.4, as with the TLV error
+        // statuses, because that is the spelling aggregator documentation
+        // quotes and what the trace export is grepped for.
+        assert_eq!(tlv_name(0x020b), "destination_port");
     }
 
     #[test]

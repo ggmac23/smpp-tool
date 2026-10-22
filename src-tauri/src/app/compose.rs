@@ -158,6 +158,13 @@ pub fn compose_submit(v: &SubmitFormValues) -> ComposedSubmit {
     // was typed: a hand-written UDH adds octets, and a part of a segmented
     // message is not the whole message. Guarding on "one part" used to let a
     // multi-part overflow pass in silence.
+    // Whatever the segmenter had to say about the body it produced.
+    for warning in segments.iter().flat_map(|s| s.unmappable.iter()) {
+        if !warnings.iter().any(|w| w == warning) {
+            warnings.push(warning.clone());
+        }
+    }
+
     if v.placement == BodyPlacement::ShortMessage {
         for (index, seg) in segments.iter().enumerate() {
             let Some(FieldValue::Bytes(body)) = seg.fields.get("short_message") else {
@@ -176,6 +183,18 @@ pub fn compose_submit(v: &SubmitFormValues) -> ComposedSubmit {
                     body.len() & 0xff
                 ));
             }
+        }
+    }
+
+    for row in v.tlvs.iter().filter(|r| !clean_hex(&r.tag_hex).is_empty()) {
+        if u16::from_str_radix(&clean_hex(&row.tag_hex), 16).is_err() {
+            // Sending tag 0x0000 instead would be a different TLV from the
+            // one asked for, chosen silently.
+            warnings.push(format!(
+                "the TLV tag \"{}\" is not a 16-bit hex value; it goes out as 0x0000. \
+                 Sending it anyway.",
+                row.tag_hex
+            ));
         }
     }
 
@@ -539,6 +558,41 @@ mod tests {
         let tlv = out.requests[0].tlvs.last().unwrap();
         assert_eq!(tlv.tag, 0x1400, "the 0x prefix is the user's to type");
         assert_eq!(tlv.hex, "4162");
+    }
+
+    #[test]
+    fn says_so_when_a_tlv_tag_cannot_be_read_rather_than_sending_tag_zero() {
+        // A tag typed as five digits used to become 0x0000 — a different TLV
+        // from the one asked for, sent without a word. Not blocking the input
+        // is right; silently changing it is not.
+        let mut v = form("hello");
+        v.tlvs = vec![TlvRow {
+            tag_hex: "12345".into(),
+            value_hex: Some("ff".into()),
+            value_text: None,
+        }];
+        let out = compose_submit(&v);
+        assert!(
+            out.warnings.iter().any(|w| w.contains("12345")),
+            "the tag that could not be read must be named: {:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn carries_a_segment_warning_up_to_the_user() {
+        // A message past what concatenation can number is composed anyway,
+        // and the reason reaches the form rather than stopping at the
+        // segmenter.
+        let mut v = form(&"a".repeat(50_000));
+        v.segmentation = SegmentationMode::Udh;
+        let out = compose_submit(&v);
+        assert!(out.requests.len() > 255);
+        assert!(
+            out.warnings.iter().any(|w| w.contains("255")),
+            "{:?}",
+            out.warnings
+        );
     }
 
     #[test]
