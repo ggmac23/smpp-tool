@@ -10,6 +10,7 @@
 //! Tauri commands and receives events; bytes cross as lowercase hex strings.
 
 pub mod smpp;
+pub mod testing;
 
 /// Start the application. Kept here rather than in `main.rs` so integration
 /// tests can link the library without launching a window.

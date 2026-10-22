@@ -5,4 +5,7 @@
 //! never hidden, never silently repaired, and never invented.
 
 pub mod constants;
+pub mod decode;
+pub mod defs;
+pub mod frame;
 pub mod tlv;
