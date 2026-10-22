@@ -110,3 +110,25 @@ fn walk(dir: &Path, visit: &mut impl FnMut(&Path)) {
         }
     }
 }
+
+#[test]
+fn the_tests_carry_a_manifest_so_they_start_on_windows() {
+    // Without this, every test executable on Windows loads Common Controls
+    // version 5, cannot resolve the `TaskDialogIndirect` that Tauri's dialog
+    // code imports, and the process is killed by the loader before the first
+    // test runs — the whole suite silently stops covering Windows, which is
+    // one of the three platforms this is released for.
+    let manifest = std::fs::read_to_string("windows/test.manifest")
+        .expect("the test executables need a manifest of their own on Windows");
+    assert!(
+        manifest.contains("Microsoft.Windows.Common-Controls")
+            && manifest.contains("version=\"6.0.0.0\""),
+        "the manifest must ask for Common Controls 6: {manifest}"
+    );
+
+    let build = std::fs::read_to_string("build.rs").unwrap();
+    assert!(
+        build.contains("rustc-link-arg-tests") && build.contains("MANIFESTINPUT"),
+        "build.rs must embed that manifest into the test executables"
+    );
+}

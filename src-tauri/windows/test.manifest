@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <!-- Tauri's dialog code imports TaskDialogIndirect, which only Common
+       Controls version 6 exports. The application binary gets that
+       dependency from the manifest tauri-build links into it, but
+       tauri-build links the resource into binaries only, so a test
+       executable loads version 5 instead and Windows refuses to start the
+       process at all: STATUS_ENTRYPOINT_NOT_FOUND, before a single test
+       runs. build.rs embeds this manifest into the test executables so the
+       suite runs on Windows, where the application actually ships. -->
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>

@@ -5,9 +5,6 @@ type, shows what came back, and never tidies either up.
 
 ![The main window: the connection panel on the left with live counters, a submit_sm form in the centre, and the trace along the bottom with a PDU selected, its hex and its decoded fields](docs/screenshots/main.png)
 
-Rust backend, [Tauri](https://tauri.app) shell, [qooxdoo](https://qooxdoo.org)
-interface. The macOS build is 19 MB.
-
 ---
 
 ## What it is for

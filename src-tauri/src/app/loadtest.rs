@@ -1577,19 +1577,55 @@ mod tests {
 
     #[tokio::test]
     async fn stops_climbing_at_the_maximum_even_when_nothing_breaks() {
+        // Low rates over long steps, deliberately. A step breaches on three
+        // counts, and one of them — the shortfall — is about this client's own
+        // pacing rather than the SMSC's. Asking for a high rate inside a short
+        // step leaves the pacer no room: a scheduling hiccup worth a tenth of
+        // the step is enough to read as a shortfall, and the test would then be
+        // measuring the machine it runs on instead of the stopping rule. The
+        // shortfall rule has its own tests; this one needs it quiet.
         let smsc = FakeSmsc::new();
         let port = smsc.listen().await;
         let runner = LoadRunner::new();
         let report = runner
-            .start(config(port, 1, 5000, ramp(50, 50, 150, 0.5)))
+            .start(config(
+                port,
+                1,
+                5000,
+                LoadMode::Ramp {
+                    start_rate: 10,
+                    step: 10,
+                    step_duration: Duration::from_secs(1),
+                    max_rate: 30,
+                    abandon_on: AbandonOn {
+                        error_share: 0.5,
+                        latency_p95_ms: 60_000,
+                    },
+                },
+            ))
             .await
             .unwrap();
 
+        let why: Vec<String> = report
+            .steps
+            .iter()
+            .filter(|s| s.breached)
+            .map(|s| {
+                format!(
+                    "{}/sec: {}",
+                    s.requested_rate,
+                    s.reason.clone().unwrap_or_default()
+                )
+            })
+            .collect();
+        assert!(
+            why.is_empty(),
+            "nothing was meant to break, and something did: {why:?}"
+        );
         assert_eq!(report.ended, LoadEndReason::ReachedMaxRate);
-        assert_eq!(report.steps.last().unwrap().requested_rate, 150);
-        assert!(!report.steps.iter().any(|s| s.breached));
+        assert_eq!(report.steps.last().unwrap().requested_rate, 30);
         // The ceiling held, so the ceiling is what it sustained.
-        assert_eq!(report.sustained_rate_per_sec, 150);
+        assert_eq!(report.sustained_rate_per_sec, 30);
     }
 
     #[tokio::test]
