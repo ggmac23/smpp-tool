@@ -70,14 +70,15 @@ Take the file for your machine from
 Linux, an `.msi` or `.exe` for Windows.
 
 Nothing here carries a paid developer certificate, so the first launch needs a
-nudge: on macOS drag the app to Applications, then right-click it and choose
-Open — that warning has an Open button, which the one from a plain double-click
-does not. On Windows choose "More info" and then "Run anyway".
+nudge. On macOS drag the app to Applications and open it once — it will be
+blocked — then go to System Settings, Privacy & Security, and click Open
+Anyway down in the Security section. macOS 15 removed the old right-click and
+Open shortcut, so that route is gone and this is the one left. On Windows
+choose "More info" and then "Run anyway".
 
-If a macOS download instead says the app "is damaged and can't be opened",
-it is from 0.1.0, where the bundle was left unsigned and macOS read the
-signature as broken rather than absent. Take 0.1.1 or later, or clear the
-quarantine flag on what you have: `xattr -cr "/Applications/SMPP Tool.app"`.
+If macOS calls the app damaged rather than unidentified, the download is
+0.1.0, whose bundle was left unsigned: macOS reads a signature it cannot make
+sense of as a broken one, and nothing gets past that. Take 0.1.1 or later.
 
 ## Build it yourself
 

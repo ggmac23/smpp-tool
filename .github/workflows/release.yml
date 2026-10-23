@@ -107,8 +107,11 @@ jobs:
             - **Linux** — the `.AppImage` (runs anywhere) or the `.deb`
             - **Windows** — the `.msi` or the `.exe` installer
 
-            Nothing here is code-signed, so the first launch needs a nudge:
-            on macOS right-click the app and choose Open; on Windows choose
-            "More info" then "Run anyway".
+            Nothing here carries a paid developer certificate, so the first
+            launch needs a nudge. On macOS open the app once — it will be
+            blocked — then go to System Settings, Privacy & Security, and
+            click Open Anyway in the Security section; macOS 15 removed the
+            old right-click and Open shortcut. On Windows choose "More info"
+            then "Run anyway".
           releaseDraft: true
           prerelease: false
