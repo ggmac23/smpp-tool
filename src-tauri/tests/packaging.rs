@@ -54,14 +54,36 @@ fn bundles_for_every_platform_the_release_builds_for() {
 }
 
 #[test]
-fn pins_no_signing_identity() {
-    // Signing is the user's to arrange with their own certificate. A pinned
-    // identity here would fail the build on every other machine.
+fn signs_the_app_bundle_so_macos_does_not_call_it_damaged() {
+    // This test used to require signingIdentity to be null, which is to say
+    // it required the bug: with no identity Tauri leaves the bundle unsigned,
+    // the binary keeps only the ad-hoc signature the linker puts on it, and
+    // the bundle has no _CodeSignature at all. macOS then reads the signature
+    // as invalid rather than absent, and tells whoever downloaded it that the
+    // app "is damaged and can't be opened" — a dead end, because right-click
+    // and Open does not get past that one. Signed ad-hoc, the same app is
+    // merely from an unidentified developer, which right-click and Open does
+    // get past.
+    let cfg = config();
+    let identity = cfg["bundle"]["macOS"]["signingIdentity"].as_str();
+    assert_eq!(
+        identity,
+        Some("-"),
+        "the bundle must be signed ad-hoc (\"-\"), or macOS calls it damaged"
+    );
+}
+
+#[test]
+fn pins_no_certificate_of_anyone_s_own() {
+    // Ad-hoc is the one identity that belongs in a repository: it needs no
+    // certificate, so it builds on anybody's machine. A real Developer ID
+    // here would fail the build everywhere it is not installed.
     let cfg = config();
     let bundle = &cfg["bundle"];
-    assert!(
-        bundle["macOS"]["signingIdentity"].is_null(),
-        "no signing identity may be pinned in the repository"
+    let identity = bundle["macOS"]["signingIdentity"].as_str().unwrap_or("-");
+    assert_eq!(
+        identity, "-",
+        "only ad-hoc signing may be pinned in the repository, not {identity:?}"
     );
     assert!(
         bundle["macOS"]["providerShortName"].is_null(),
@@ -153,5 +175,40 @@ fn the_tests_carry_a_manifest_so_they_start_on_windows() {
     assert!(
         build.contains("rustc-link-arg-tests") && build.contains("MANIFESTINPUT"),
         "build.rs must embed that manifest into the test executables"
+    );
+}
+
+#[test]
+fn the_three_places_that_carry_a_version_agree() {
+    // The version is written in three files and read from a fourth: the
+    // bundle takes tauri.conf.json, the crate takes Cargo.toml, and the
+    // release notes are written against whatever the tag says. Let them drift
+    // and the installer is called one thing while the application reports
+    // another, which is the sort of thing nobody notices until a bug report
+    // names a version that was never built.
+    let bundle = config()["version"]
+        .as_str()
+        .expect("tauri.conf.json must carry a version")
+        .to_string();
+
+    let cargo = std::fs::read_to_string("Cargo.toml").unwrap();
+    let crate_version = cargo
+        .lines()
+        .skip_while(|l| l.trim() != "[package]")
+        .find_map(|l| l.strip_prefix("version = "))
+        .map(|v| v.trim().trim_matches('"').to_string())
+        .expect("Cargo.toml must carry a version");
+
+    let package: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string("../package.json").unwrap()).unwrap();
+    let npm_version = package["version"]
+        .as_str()
+        .expect("package.json must carry a version")
+        .to_string();
+
+    assert_eq!(
+        (crate_version.as_str(), npm_version.as_str()),
+        (bundle.as_str(), bundle.as_str()),
+        "the version differs between tauri.conf.json, Cargo.toml and package.json"
     );
 }

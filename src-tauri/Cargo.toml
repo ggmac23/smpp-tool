@@ -1,6 +1,6 @@
 [package]
 name = "smppclient"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Desktop SMPP tool for testing SMSCs and SMS aggregators"
 publish = false

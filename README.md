@@ -69,8 +69,15 @@ Take the file for your machine from
 [Releases](../../releases): a `.dmg` for macOS, an `.AppImage` or `.deb` for
 Linux, an `.msi` or `.exe` for Windows.
 
-Nothing is code-signed, so the first launch needs a nudge: on macOS right-click
-the app and choose Open; on Windows choose "More info" then "Run anyway".
+Nothing here carries a paid developer certificate, so the first launch needs a
+nudge: on macOS drag the app to Applications, then right-click it and choose
+Open — that warning has an Open button, which the one from a plain double-click
+does not. On Windows choose "More info" and then "Run anyway".
+
+If a macOS download instead says the app "is damaged and can't be opened",
+it is from 0.1.0, where the bundle was left unsigned and macOS read the
+signature as broken rather than absent. Take 0.1.1 or later, or clear the
+quarantine flag on what you have: `xattr -cr "/Applications/SMPP Tool.app"`.
 
 ## Build it yourself
 
